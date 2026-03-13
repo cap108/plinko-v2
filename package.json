@@ -8,7 +8,7 @@
     "dev:frontend": "npm run dev -w @plinko-v2/frontend",
     "dev:backend": "npm run dev -w @plinko-v2/backend",
     "build": "npm run build -w @plinko-v2/shared && npm run build -w @plinko-v2/backend && npm run build -w @plinko-v2/frontend",
-    "typecheck": "tsc -b shared backend && tsc --noEmit -p frontend",
+    "typecheck": "tsc -b shared backend && tsc --noEmit -p frontend && tsc --noEmit -p frontend/tsconfig.worker.json",
     "test": "npm run test -w @plinko-v2/frontend --if-present && npm run test -w @plinko-v2/backend --if-present"
   },
   "engines": {

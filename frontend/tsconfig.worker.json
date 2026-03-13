@@ -6,11 +6,10 @@
     "strict": true,
     "esModuleInterop": true,
     "skipLibCheck": true,
-    "jsx": "react-jsx",
-    "lib": ["ES2022", "DOM", "DOM.Iterable"],
+    "lib": ["ES2022", "WebWorker"],
     "baseUrl": ".",
     "paths": { "@/*": ["./src/*"] }
   },
-  "include": ["src"],
-  "exclude": ["vite.config.ts", "src/plinko/physics.worker.ts"]
+  "include": ["src/plinko/physics.worker.ts"],
+  "exclude": ["node_modules"]
 }
