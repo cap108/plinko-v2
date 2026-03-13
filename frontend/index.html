@@ -1,0 +1,38 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <meta name="color-scheme" content="dark" />
+    <meta name="theme-color" content="#0a0e1a" />
+    <meta name="description" content="A world-class browser Plinko game with procedural audio, WebGL rendering, and provably fair outcomes." />
+
+    <!-- Open Graph — og:image MUST be absolute URL; update DEPLOY_URL at deploy time -->
+    <meta property="og:title" content="PlinkoVibe" />
+    <meta property="og:description" content="Drop balls, hit pegs, win big. A Plinko game built with PixiJS, custom physics, and procedural audio." />
+    <meta property="og:type" content="website" />
+    <meta property="og:image" content="https://DEPLOY_URL/og-image.png" />
+
+    <!-- Twitter Card -->
+    <meta name="twitter:card" content="summary_large_image" />
+    <meta name="twitter:title" content="PlinkoVibe" />
+    <meta name="twitter:description" content="Drop balls, hit pegs, win big." />
+    <meta name="twitter:image" content="https://DEPLOY_URL/og-image.png" />
+
+    <title>PlinkoVibe</title>
+    <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
+    <link rel="apple-touch-icon" href="/apple-touch-icon.png" />
+  </head>
+  <body style="background:#0a0e1a" class="bg-surface text-white min-h-screen">
+    <div id="root">
+      <!-- Inline splash — visible before React/CSS load. No external dependencies. -->
+      <div style="display:flex;align-items:center;justify-content:center;min-height:100vh;font-family:system-ui,sans-serif;">
+        <p style="color:#00E5FF;font-size:2rem;font-weight:bold;opacity:0.7;">PlinkoVibe</p>
+      </div>
+    </div>
+    <noscript>
+      <p style="color:#E6F3FF;text-align:center;padding:2rem;">PlinkoVibe requires JavaScript to run.</p>
+    </noscript>
+    <script type="module" src="/src/main.tsx"></script>
+  </body>
+</html>

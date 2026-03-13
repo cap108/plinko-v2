@@ -1,0 +1,21 @@
+{
+  "name": "plinko-v2",
+  "private": true,
+  "type": "module",
+  "workspaces": ["shared", "backend", "frontend"],
+  "scripts": {
+    "dev": "npm run build -w @plinko-v2/shared && concurrently -k -n shared,be,fe -c gray,cyan,magenta \"npm run dev:watch -w @plinko-v2/shared\" \"npm run dev -w @plinko-v2/backend\" \"npm run dev -w @plinko-v2/frontend\"",
+    "dev:frontend": "npm run dev -w @plinko-v2/frontend",
+    "dev:backend": "npm run dev -w @plinko-v2/backend",
+    "build": "npm run build -w @plinko-v2/shared && npm run build -w @plinko-v2/backend && npm run build -w @plinko-v2/frontend",
+    "typecheck": "tsc -b shared backend && tsc --noEmit -p frontend",
+    "test": "npm run test -w @plinko-v2/frontend --if-present && npm run test -w @plinko-v2/backend --if-present"
+  },
+  "engines": {
+    "node": ">=22.0.0"
+  },
+  "devDependencies": {
+    "concurrently": "^9.1.0",
+    "typescript": "^5.7.0"
+  }
+}

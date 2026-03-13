@@ -1,0 +1,17 @@
+{
+  "name": "@plinko-v2/shared",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "exports": {
+    ".": {
+      "types": "./dist/types.d.ts",
+      "import": "./dist/types.js"
+    }
+  },
+  "scripts": {
+    "build": "tsc",
+    "dev:watch": "tsc -w --preserveWatchOutput",
+    "typecheck": "tsc -b --noEmit"
+  }
+}

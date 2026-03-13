@@ -1,0 +1,69 @@
+@import "tailwindcss";
+
+@theme {
+  /* Surfaces */
+  --color-surface: #0a0e1a;
+  --color-surface-alt: #111827;
+  --color-surface-panel: rgba(255, 255, 255, 0.05);
+
+  /* Accents (WCAG AA safe on --color-surface for text: cyan, gold, green) */
+  /* Decoration only (fail WCAG AA on dark bg): magenta, purple, red */
+  --color-accent-cyan: #00E5FF;
+  --color-accent-magenta: #FF006E;
+  --color-accent-gold: #FFD700;
+  --color-accent-purple: #9C27B0;
+  --color-accent-green: #66BB6A;
+  --color-accent-red: #FF2626;
+
+  /* Text */
+  --color-text-primary: #E6F3FF;
+  --color-text-secondary: #8B94B6;
+
+  /* Borders & Status */
+  --color-border-subtle: rgba(139, 148, 182, 0.2);
+  --color-status-success: #00FF88;
+  --color-status-error: #FF3366;
+
+  /* Font families */
+  --font-heading: 'Orbitron', system-ui, sans-serif;
+  --font-body: system-ui, -apple-system, sans-serif;
+  --font-mono: 'Space Mono', ui-monospace, monospace;
+}
+
+@font-face {
+  font-family: 'Orbitron';
+  src: url('/fonts/Orbitron-Regular.woff2') format('woff2');
+  font-weight: 400;
+  font-display: swap;
+}
+
+@font-face {
+  font-family: 'Orbitron';
+  src: url('/fonts/Orbitron-Bold.woff2') format('woff2');
+  font-weight: 700;
+  font-display: swap;
+}
+
+@font-face {
+  font-family: 'Space Mono';
+  src: url('/fonts/SpaceMono-Regular.woff2') format('woff2');
+  font-weight: 400;
+  font-display: swap;
+}
+
+@font-face {
+  font-family: 'Space Mono';
+  src: url('/fonts/SpaceMono-Bold.woff2') format('woff2');
+  font-weight: 700;
+  font-display: swap;
+}
+
+body {
+  font-family: var(--font-body);
+  -webkit-font-smoothing: antialiased;
+  color-scheme: dark;
+}
+
+#root {
+  min-height: 100vh;
+}
