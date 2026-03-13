@@ -5,11 +5,15 @@ import rateLimit from 'express-rate-limit';
 import { pinoHttp } from 'pino-http';
 import { logger } from './logger.js';
 import { initDb } from './db.js';
+import { Store } from './store.js';
+import { createRouter } from './routes/index.js';
 
 const app = express();
 const PORT = Number(process.env.PORT ?? 4000);
 
 const db = initDb();
+const store = new Store(db);
+store.startCleanupInterval();
 
 // ---- Trust proxy ----
 if (process.env.BEHIND_TLS_PROXY === 'true') {
@@ -71,10 +75,8 @@ app.use('/api', (_req, res, next) => {
   next();
 });
 
-// ---- Health check ----
-app.get('/api/health', (_req, res) => {
-  res.json({ ok: true });
-});
+// ---- API routes ----
+app.use('/api', createRouter(store));
 
 // ---- Start ----
 const server = app.listen(PORT, () => {
@@ -88,6 +90,7 @@ const shutdown = () => {
   const forceTimer = setTimeout(() => process.exit(1), 5000);
   forceTimer.unref();
   server.close(() => {
+    store.stopCleanupInterval();
     db.close();
     process.exit(0);
   });

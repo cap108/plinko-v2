@@ -11,6 +11,7 @@ A world-class browser Plinko game with custom physics, WebGL rendering, procedur
 | **Audio** | Web Audio API — procedural position-based pitch shifting |
 | **Backend** | Express 5, SQLite (better-sqlite3), Zod, Helmet, Pino |
 | **Monorepo** | npm workspaces (shared, backend, frontend) |
+| **Deployment** | Vercel (frontend), Railway (backend + SQLite persistent volume) |
 | **Node** | 22 LTS (required for `import.meta.dirname`) |
 
 ## Architecture
@@ -82,6 +83,7 @@ npm run build        # Production build
 4. **Game Feel / Juice** — Procedural audio, particles, glow, screen shake, win popups
 5. **Features** — Controls panel, stats, auto-bet, keyboard shortcuts, responsive layout
 6. **Polish & Accessibility** — Object pools, error handling, a11y, reduced motion support
+7. **Deployment** — Vercel (frontend), Railway (backend), persistent volume, CI/CD
 
 ## Key Differentiators
 
@@ -93,3 +95,7 @@ npm run build        # Production build
 ## Environment Variables
 
 See `.env.example` for all options. Defaults work for local development.
+
+**Production (Railway backend):** `PORT`, `NODE_ENV=production`, `CORS_ORIGINS=https://<vercel-domain>`, `DB_PATH=/data`, `LOG_LEVEL=info`, `IP_HASH_SALT=<secret>`, `BEHIND_TLS_PROXY=true`
+
+**Production (Vercel frontend):** `VITE_API_URL=https://<railway-domain>`

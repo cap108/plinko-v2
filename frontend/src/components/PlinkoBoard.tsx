@@ -49,32 +49,42 @@ interface PegGlow {
   startTime: number;
 }
 
-const PEG_GLOW_DURATION = 150; // ms
+const PEG_GLOW_DURATION = 300; // ms
 const PEG_BASE_COLOR = 0xc0c0d0;
 const PEG_GLOW_COLOR = 0x00e5ff;
+const PEG_GLOW_SCALE = 2.0;
 
 // ---- Component props ----
 
 export interface PlinkoBoardProps {
   rows: RowCount;
   speed: SpeedPreset;
-  onBallLanded?: (slotIndex: number) => void;
+  multipliers?: number[];
+  onBallLanded?: (dropId: number, slotIndex: number) => void;
   onBallCountChange?: (count: number) => void;
 }
 
 export interface PlinkoBoardHandle {
-  dropBall: (slotIndex: number) => void;
+  dropBall: (slotIndex: number) => number;
   getBallCount: () => number;
 }
 
+function formatMultiplier(m: number): string {
+  if (m >= 1000) return `${(m / 1000).toFixed(0)}K`;
+  if (m >= 100) return `${Math.round(m)}x`;
+  if (m >= 10) return `${m.toFixed(0)}x`;
+  return `${m.toFixed(1)}x`;
+}
+
 const PlinkoBoard = forwardRef<PlinkoBoardHandle, PlinkoBoardProps>(
-  function PlinkoBoard({ rows, speed, onBallLanded, onBallCountChange }, ref) {
+  function PlinkoBoard({ rows, speed, multipliers, onBallLanded, onBallCountChange }, ref) {
     const containerRef = useRef<HTMLDivElement>(null);
     const appRef = useRef<Application | null>(null);
 
     // Mutable state that lives across frames (not React state — no re-renders)
     const ballsRef = useRef<BallPlayback[]>([]);
     const pegGlowsRef = useRef<PegGlow[]>([]);
+    const dirtyPegsRef = useRef<Set<number>>(new Set()); // globalIndices needing reset
 
     // Layer refs for PixiJS containers
     const pegLayerRef = useRef<Container | null>(null);
@@ -87,10 +97,12 @@ const PlinkoBoard = forwardRef<PlinkoBoardHandle, PlinkoBoardProps>(
     // Stable refs for props used in the animation loop
     const rowsRef = useRef(rows);
     const speedRef = useRef(speed);
+    const multipliersRef = useRef(multipliers);
     const onBallLandedRef = useRef(onBallLanded);
     const onBallCountChangeRef = useRef(onBallCountChange);
     rowsRef.current = rows;
     speedRef.current = speed;
+    multipliersRef.current = multipliers;
     onBallLandedRef.current = onBallLanded;
     onBallCountChangeRef.current = onBallCountChange;
 
@@ -151,14 +163,17 @@ const PlinkoBoard = forwardRef<PlinkoBoardHandle, PlinkoBoardProps>(
         bg.fill({ color, alpha: 0.25 });
         slotLayer.addChild(bg);
 
-        // Slot index label (placeholder — Phase 3 will show multipliers)
+        const multipliersArr = multipliersRef.current;
+        const label = multipliersArr?.[s] != null
+          ? formatMultiplier(multipliersArr[s])
+          : String(s);
         const style = new TextStyle({
           fontFamily: 'Orbitron, system-ui, sans-serif',
           fontSize: Math.min(10, slotW * 0.35),
           fontWeight: 'bold',
           fill: color,
         });
-        const text = new Text({ text: String(s), style });
+        const text = new Text({ text: label, style });
         text.anchor.set(0.5);
         text.position.set(cx, slotYPos);
         slotLayer.addChild(text);
@@ -257,7 +272,7 @@ const PlinkoBoard = forwardRef<PlinkoBoardHandle, PlinkoBoardProps>(
 
             // Handle landing
             if (update.justLanded) {
-              onBallLandedRef.current?.(ball.slotIndex);
+              onBallLandedRef.current?.(ball.dropId, ball.slotIndex);
               countChanged = true;
             }
           }
@@ -267,12 +282,20 @@ const PlinkoBoard = forwardRef<PlinkoBoardHandle, PlinkoBoardProps>(
           }
 
           // ---- Update peg glows ----
-          // Reset all pegs to base color, then apply active glows
-          for (const pg of pegs) {
-            pg.tint = PEG_BASE_COLOR;
-            pg.scale.set(1);
+          // Only redraw pegs that were glowing last frame (reset to base)
+          const dirty = dirtyPegsRef.current;
+          for (const idx of dirty) {
+            const pg = pegs[idx];
+            if (pg) {
+              pg.clear();
+              pg.circle(0, 0, PEG_RADIUS);
+              pg.fill(PEG_BASE_COLOR);
+              pg.scale.set(1);
+            }
           }
+          dirty.clear();
 
+          // Apply active glows (redraw only glowing pegs)
           for (let i = glows.length - 1; i >= 0; i--) {
             const glow = glows[i];
             const elapsed = now - glow.startTime;
@@ -283,8 +306,11 @@ const PlinkoBoard = forwardRef<PlinkoBoardHandle, PlinkoBoardProps>(
             const alpha = 1 - elapsed / PEG_GLOW_DURATION;
             const pg = pegs[glow.globalIndex];
             if (pg) {
-              pg.tint = lerpColor(PEG_BASE_COLOR, PEG_GLOW_COLOR, alpha);
-              pg.scale.set(1 + 0.15 * alpha); // subtle size pulse
+              pg.clear();
+              pg.circle(0, 0, PEG_RADIUS);
+              pg.fill(lerpColor(PEG_BASE_COLOR, PEG_GLOW_COLOR, alpha));
+              pg.scale.set(1 + (PEG_GLOW_SCALE - 1) * alpha);
+              dirty.add(glow.globalIndex);
             }
           }
 
@@ -325,17 +351,34 @@ const PlinkoBoard = forwardRef<PlinkoBoardHandle, PlinkoBoardProps>(
       }
     }, [rows, buildBoard]);
 
+    // Update slot labels when multipliers change (text-only, no board rebuild)
+    useEffect(() => {
+      multipliersRef.current = multipliers;
+      if (!slotTextsRef.current || !multipliers) return;
+      multipliers.forEach((m, idx) => {
+        const text = slotTextsRef.current?.[idx];
+        if (text) text.text = formatMultiplier(m);
+      });
+    }, [multipliers]);
+
     // ---- Drop ball API ----
+    let nextDropId = 1;
+
     const dropBall = useCallback(
-      (slotIndex: number) => {
+      (slotIndex: number): number => {
+        const dropId = nextDropId++;
         const currentRows = rowsRef.current;
         const currentSpeed = speedRef.current;
 
         simulateAsync(currentRows, slotIndex).then((result) => {
           const bp = createBallPlayback(result, currentSpeed, performance.now());
+          bp.dropId = dropId;
           ballsRef.current.push(bp);
           onBallCountChangeRef.current?.(ballsRef.current.length);
+        }).catch((err) => {
+          console.error('Ball simulation failed:', err);
         });
+        return dropId;
       },
       [],
     );

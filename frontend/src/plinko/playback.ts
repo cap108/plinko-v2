@@ -14,6 +14,8 @@ const SPEED_MULTIPLIERS: Record<SpeedPreset, number> = {
 export interface BallPlayback {
   /** Unique id for this ball animation. */
   id: number;
+  /** External ID assigned by dropBall(), used for result mapping. */
+  dropId: number;
   /** Pre-computed path positions. */
   positions: SimPosition[];
   /** Peg hit events, sorted by simTime. */
@@ -47,6 +49,7 @@ export function createBallPlayback(
 ): BallPlayback {
   return {
     id: nextBallId++,
+    dropId: 0, // Set by PlinkoBoard.dropBall() before animation starts
     positions: result.positions,
     pegHits: result.pegHits,
     totalSimTime: result.totalSimTime,

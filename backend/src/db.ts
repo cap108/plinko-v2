@@ -46,9 +46,6 @@ export function initDb(): Database.Database {
       ON history(session_id, timestamp DESC);
   `);
 
-  // Phase 3 will add prepared statements here:
-  // export const statements = { createSession: db.prepare(...), ... };
-
   logger.info({ dbPath }, 'Database initialized');
   return db;
 }

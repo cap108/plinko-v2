@@ -65,3 +65,7 @@ export interface HistoryEntry {
 export interface HistoryResponse {
   history: HistoryEntry[];
 }
+
+export interface ErrorResponse {
+  error: string;
+}
