@@ -13,9 +13,10 @@ interface Popup {
 }
 
 function getTierFontSize(multiplier: number, alwaysShow: boolean): number {
-  if (multiplier >= 20) return 22;
-  if (multiplier >= 5) return 16;
-  if (multiplier >= 2) return 12;
+  if (multiplier >= 100) return 36;
+  if (multiplier >= 20) return 28;
+  if (multiplier >= 5) return 20;
+  if (multiplier >= 2) return 14;
   return alwaysShow ? 14 : 12;
 }
 

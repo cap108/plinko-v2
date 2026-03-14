@@ -175,14 +175,14 @@ export default function App() {
   useEffect(() => {
     if (showSplash) return;
     const handler = () => {
-      ensureAudioResumed();
-      const musicMuted = localStorage.getItem('plinko_music_muted') === 'true';
-      if (!musicMuted) startBackgroundMusic();
+      // Remove both listeners immediately so this only fires once
       document.removeEventListener('click', handler);
       document.removeEventListener('keydown', handler);
+      ensureAudioResumed();
+      if (!plinko.musicMuted) startBackgroundMusic();
     };
-    document.addEventListener('click', handler, { once: true });
-    document.addEventListener('keydown', handler, { once: true });
+    document.addEventListener('click', handler);
+    document.addEventListener('keydown', handler);
     return () => {
       document.removeEventListener('click', handler);
       document.removeEventListener('keydown', handler);
