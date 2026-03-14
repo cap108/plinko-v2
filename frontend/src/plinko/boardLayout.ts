@@ -101,9 +101,13 @@ export function getSlotBottom(rows: RowCount): number {
   return getSlotY(rows) + SLOT_ROW_HEIGHT / 2;
 }
 
+/** Extra height below slots for anchor labels at high row counts. */
+export const ANCHOR_LABEL_HEIGHT = 16;
+
 /** Returns total board height from top to bottom of slot row. */
 export function getBoardHeight(rows: RowCount): number {
-  return getSlotBottom(rows) + 8; // small padding below
+  const extra = rows >= 12 ? ANCHOR_LABEL_HEIGHT : 0;
+  return getSlotBottom(rows) + 8 + extra; // small padding below
 }
 
 /** Returns the visual ball radius, scaled to row density. */

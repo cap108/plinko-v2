@@ -11,12 +11,13 @@ import {
   BOARD_WIDTH,
   PEG_RADIUS,
   SLOT_ROW_HEIGHT,
+  ANCHOR_LABEL_HEIGHT,
   getPegPositions,
   getSlotXBounds,
   getSlotY,
+  getSlotBottom,
   getBoardHeight,
   getBallRadiusForRows,
-  type PegPosition,
 } from '@/plinko/boardLayout';
 import { simulateAsync, terminateWorker } from '@/plinko/physicsWorkerClient';
 import {
@@ -25,8 +26,8 @@ import {
   type BallPlayback,
   type SpeedPreset,
 } from '@/plinko/playback';
+import { EffectCoordinator } from '@/effects/EffectCoordinator';
 
-// ---- Slot color tiers ----
 const SLOT_COLORS = {
   jackpot: 0xffd700, // gold — edge slots (highest multiplier)
   high: 0xff006e, // magenta
@@ -43,7 +44,6 @@ function getSlotColor(slotIndex: number, totalSlots: number): number {
   return SLOT_COLORS.low;
 }
 
-// ---- Peg glow flash tracking ----
 interface PegGlow {
   globalIndex: number;
   startTime: number;
@@ -54,14 +54,14 @@ const PEG_BASE_COLOR = 0xc0c0d0;
 const PEG_GLOW_COLOR = 0x00e5ff;
 const PEG_GLOW_SCALE = 2.0;
 
-// ---- Component props ----
-
 export interface PlinkoBoardProps {
   rows: RowCount;
   speed: SpeedPreset;
   multipliers?: number[];
   onBallLanded?: (dropId: number, slotIndex: number) => void;
   onBallCountChange?: (count: number) => void;
+  reducedMotion?: boolean;
+  muted?: boolean;
 }
 
 export interface PlinkoBoardHandle {
@@ -69,7 +69,15 @@ export interface PlinkoBoardHandle {
   getBallCount: () => number;
 }
 
-function formatMultiplier(m: number): string {
+function formatMultiplier(m: number, compact = false): string {
+  if (compact) {
+    // Compact format for high row counts (14+): drop "x" suffix, tighter numbers
+    if (m >= 1000) return `${(m / 1000).toFixed(0)}K`;
+    if (m >= 100) return `${Math.round(m)}`;
+    if (m >= 10) return `${m.toFixed(0)}`;
+    if (m >= 1) return `${m.toFixed(1)}`;
+    return `${m.toFixed(1)}`;
+  }
   if (m >= 1000) return `${(m / 1000).toFixed(0)}K`;
   if (m >= 100) return `${Math.round(m)}x`;
   if (m >= 10) return `${m.toFixed(0)}x`;
@@ -77,49 +85,65 @@ function formatMultiplier(m: number): string {
 }
 
 const PlinkoBoard = forwardRef<PlinkoBoardHandle, PlinkoBoardProps>(
-  function PlinkoBoard({ rows, speed, multipliers, onBallLanded, onBallCountChange }, ref) {
+  function PlinkoBoard({ rows, speed, multipliers, onBallLanded, onBallCountChange, reducedMotion, muted }, ref) {
     const containerRef = useRef<HTMLDivElement>(null);
     const appRef = useRef<Application | null>(null);
 
-    // Mutable state that lives across frames (not React state — no re-renders)
     const ballsRef = useRef<BallPlayback[]>([]);
     const pegGlowsRef = useRef<PegGlow[]>([]);
-    const dirtyPegsRef = useRef<Set<number>>(new Set()); // globalIndices needing reset
-
-    // Layer refs for PixiJS containers
+    const dirtyPegsRef = useRef<Set<number>>(new Set());
     const pegLayerRef = useRef<Container | null>(null);
     const ballLayerRef = useRef<Container | null>(null);
     const slotLayerRef = useRef<Container | null>(null);
     const pegGraphicsRef = useRef<Graphics[]>([]);
     const ballGraphicsRef = useRef<Map<number, Graphics>>(new Map());
     const slotTextsRef = useRef<Text[]>([]);
-
-    // Stable refs for props used in the animation loop
+    const coordinatorRef = useRef<EffectCoordinator | null>(null);
+    const effectLayerRef = useRef<Container | null>(null);
     const rowsRef = useRef(rows);
     const speedRef = useRef(speed);
     const multipliersRef = useRef(multipliers);
     const onBallLandedRef = useRef(onBallLanded);
     const onBallCountChangeRef = useRef(onBallCountChange);
+    const reducedMotionRef = useRef(reducedMotion);
+    const mutedRef = useRef(muted);
     rowsRef.current = rows;
     speedRef.current = speed;
     multipliersRef.current = multipliers;
     onBallLandedRef.current = onBallLanded;
     onBallCountChangeRef.current = onBallCountChange;
+    reducedMotionRef.current = reducedMotion;
+    mutedRef.current = muted;
 
-    // ---- Build static layers when rows or app changes ----
     const buildBoard = useCallback((app: Application, rowCount: RowCount) => {
-      // Clear existing layers
-      if (pegLayerRef.current) app.stage.removeChild(pegLayerRef.current);
-      if (ballLayerRef.current) app.stage.removeChild(ballLayerRef.current);
-      if (slotLayerRef.current) app.stage.removeChild(slotLayerRef.current);
+      // Clear coordinator sprites from old containers before destruction
+      coordinatorRef.current?.clearAll();
+
+      // Destroy old containers — peg/slot own their children;
+      // ball/effect children were detached by clearAll() above
+      for (const ref of [pegLayerRef, slotLayerRef]) {
+        if (ref.current) {
+          app.stage.removeChild(ref.current);
+          ref.current.destroy({ children: true });
+        }
+      }
+      for (const ref of [ballLayerRef, effectLayerRef]) {
+        if (ref.current) {
+          ref.current.removeChildren();
+          app.stage.removeChild(ref.current);
+          ref.current.destroy();
+        }
+      }
 
       const pegLayer = new Container();
       const ballLayer = new Container();
       const slotLayer = new Container();
+      const effectLayer = new Container();
 
       pegLayerRef.current = pegLayer;
       ballLayerRef.current = ballLayer;
       slotLayerRef.current = slotLayer;
+      effectLayerRef.current = effectLayer;
 
       // Scale the logical board to fill the renderer
       const boardH = getBoardHeight(rowCount);
@@ -127,9 +151,11 @@ const PlinkoBoard = forwardRef<PlinkoBoardHandle, PlinkoBoardProps>(
       const scaleY = app.screen.height / boardH;
       const scale = Math.min(scaleX, scaleY);
       const offsetX = (app.screen.width - BOARD_WIDTH * scale) / 2;
-      const offsetY = (app.screen.height - boardH * scale) / 2;
+      // Top-align on narrow screens (mobile), center on wide screens (desktop)
+      const isMobile = app.screen.width < 768;
+      const offsetY = isMobile ? 0 : (app.screen.height - boardH * scale) / 2;
 
-      for (const layer of [pegLayer, ballLayer, slotLayer]) {
+      for (const layer of [pegLayer, ballLayer, slotLayer, effectLayer]) {
         layer.scale.set(scale);
         layer.position.set(offsetX, offsetY);
       }
@@ -148,7 +174,14 @@ const PlinkoBoard = forwardRef<PlinkoBoardHandle, PlinkoBoardProps>(
       // ---- Slot labels ----
       const totalSlots = rowCount + 1;
       const slotYPos = getSlotY(rowCount);
+      const denseSlots = rowCount >= 12; // hide in-slot text, show anchor labels instead
       slotTextsRef.current = [];
+
+      // Determine which slots get anchor labels (edges + center)
+      const centerSlot = Math.floor(totalSlots / 2);
+      const anchorSlots = new Set([0, totalSlots - 1, centerSlot]);
+      // For even slot counts, include both center-adjacent slots
+      if (totalSlots % 2 === 0) anchorSlots.add(centerSlot - 1);
 
       for (let s = 0; s < totalSlots; s++) {
         const bounds = getSlotXBounds(rowCount, s);
@@ -163,36 +196,78 @@ const PlinkoBoard = forwardRef<PlinkoBoardHandle, PlinkoBoardProps>(
         bg.fill({ color, alpha: 0.25 });
         slotLayer.addChild(bg);
 
+        // Tap (mobile) / hover (desktop) to reveal multiplier (dense mode only)
+        if (denseSlots) {
+          bg.eventMode = 'static';
+          bg.cursor = 'pointer';
+          const slotIndex = s;
+          const showLabel = () => {
+            const mult = multipliersRef.current?.[slotIndex];
+            if (mult != null) {
+              coordinatorRef.current?.showSlotLabel(cx, slotYPos - slotHalfH, mult);
+            }
+          };
+          bg.on('pointertap', showLabel);
+          bg.on('mouseover', showLabel); // mouse only — avoids double-fire on touch
+        }
+
         const multipliersArr = multipliersRef.current;
-        const label = multipliersArr?.[s] != null
-          ? formatMultiplier(multipliersArr[s])
-          : String(s);
-        const style = new TextStyle({
-          fontFamily: 'Orbitron, system-ui, sans-serif',
-          fontSize: Math.min(10, slotW * 0.35),
-          fontWeight: 'bold',
-          fill: color,
-        });
-        const text = new Text({ text: label, style });
-        text.anchor.set(0.5);
-        text.position.set(cx, slotYPos);
-        slotLayer.addChild(text);
-        slotTextsRef.current.push(text);
+
+        if (!denseSlots) {
+          // Normal mode: show multiplier inside each slot
+          const useCompact = rows >= 14;
+          const label = multipliersArr?.[s] != null
+            ? formatMultiplier(multipliersArr[s], useCompact)
+            : String(s);
+          const style = new TextStyle({
+            fontFamily: 'Orbitron, system-ui, sans-serif',
+            fontSize: useCompact ? Math.min(9, slotW * 0.48) : Math.min(10, slotW * 0.35),
+            fontWeight: 'bold',
+            fill: color,
+          });
+          const text = new Text({ text: label, style });
+          text.anchor.set(0.5);
+          text.position.set(cx, slotYPos);
+          slotLayer.addChild(text);
+          slotTextsRef.current.push(text);
+        }
+
+        // Dense mode: anchor labels below edge and center slots
+        if (denseSlots && anchorSlots.has(s)) {
+          const label = multipliersArr?.[s] != null
+            ? formatMultiplier(multipliersArr[s], false)
+            : String(s);
+          const anchorY = getSlotBottom(rowCount) + ANCHOR_LABEL_HEIGHT / 2 + 2;
+          const style = new TextStyle({
+            fontFamily: 'Orbitron, system-ui, sans-serif',
+            fontSize: 9,
+            fontWeight: 'bold',
+            fill: color,
+          });
+          const text = new Text({ text: label, style });
+          text.anchor.set(0.5);
+          text.position.set(cx, anchorY);
+          slotLayer.addChild(text);
+        }
       }
 
-      // Add layers in order: pegs (back), balls (middle), slots (front)
+      // Add layers in order: pegs (back), balls (middle), slots, effects (front)
       app.stage.addChild(pegLayer);
       app.stage.addChild(ballLayer);
       app.stage.addChild(slotLayer);
+      app.stage.addChild(effectLayer);
+
+      // Notify coordinator to clear stale state and re-parent
+      coordinatorRef.current?.reconfigure(scale, offsetX, offsetY);
     }, []);
 
-    // ---- Main useEffect: init PixiJS app, animation loop, cleanup ----
     useEffect(() => {
       const container = containerRef.current;
       if (!container) return;
 
       let destroyed = false;
       let rafId = 0;
+      let lastTickTime = 0;
 
       (async () => {
         const app = new Application();
@@ -215,30 +290,49 @@ const PlinkoBoard = forwardRef<PlinkoBoardHandle, PlinkoBoardProps>(
         // Build initial board
         buildBoard(app, rowsRef.current);
 
-        // Handle resize
+        const coordinator = new EffectCoordinator({
+          app,
+          effectLayerRef,
+          ballLayerRef,
+        });
+        coordinatorRef.current = coordinator;
+
+        lastTickTime = performance.now();
+
         const onResize = () => {
           buildBoard(app, rowsRef.current);
         };
         app.renderer.on('resize', onResize);
 
-        // ---- Animation loop ----
         const tick = () => {
           if (destroyed) return;
           const now = performance.now();
+          const dt = Math.min(now - lastTickTime, 33); // cap at ~30fps worth
+          lastTickTime = now;
+
           const balls = ballsRef.current;
           const ballGfx = ballGraphicsRef.current;
           const ballLayer = ballLayerRef.current;
           const pegs = pegGraphicsRef.current;
           const glows = pegGlowsRef.current;
+          const coord = coordinatorRef.current;
 
-          // Update each ball
+          if (coord) {
+            coord.reducedMotion = reducedMotionRef.current ?? false;
+            coord.muted = mutedRef.current ?? true;
+            coord.activeBallCount = balls.filter(b => !b.landed).length;
+            coord.denseSlots = rowsRef.current >= 12;
+          }
+
+          const ballRadius = getBallRadiusForRows(rowsRef.current);
+
           let countChanged = false;
           for (let i = balls.length - 1; i >= 0; i--) {
             const ball = balls[i];
             const update = tickBall(ball, now);
 
             if (!update) {
-              // Fade-out complete — remove the ball
+              coord?.handleEvent({ type: 'ballRemoved', ballId: ball.id });
               const g = ballGfx.get(ball.id);
               if (g && ballLayer) {
                 ballLayer.removeChild(g);
@@ -250,12 +344,10 @@ const PlinkoBoard = forwardRef<PlinkoBoardHandle, PlinkoBoardProps>(
               continue;
             }
 
-            // Position the ball sprite
             let g = ballGfx.get(ball.id);
             if (!g && ballLayer) {
               g = new Graphics();
-              const br = getBallRadiusForRows(rowsRef.current);
-              g.circle(0, 0, br);
+              g.circle(0, 0, ballRadius);
               g.fill(0x00e5ff);
               ballLayer.addChild(g);
               ballGfx.set(ball.id, g);
@@ -265,13 +357,36 @@ const PlinkoBoard = forwardRef<PlinkoBoardHandle, PlinkoBoardProps>(
               g.alpha = update.alpha;
             }
 
-            // Register peg glows
             for (const hit of update.newPegHits) {
               glows.push({ globalIndex: hit.globalIndex, startTime: now });
+              const peg = pegs[hit.globalIndex];
+              if (peg) {
+                coord?.handleEvent({
+                  type: 'pegHit',
+                  rowIndex: hit.rowIndex,
+                  totalRows: rowsRef.current,
+                  x: peg.position.x,
+                  y: peg.position.y,
+                });
+              }
             }
 
-            // Handle landing
+            coord?.handleEvent({
+              type: 'ballMoved',
+              ballId: ball.id,
+              x: update.pos.x,
+              y: update.pos.y,
+              radius: ballRadius,
+            });
+
             if (update.justLanded) {
+              const mult = multipliersRef.current?.[ball.slotIndex] ?? 1;
+              coord?.handleEvent({
+                type: 'ballLanded',
+                x: update.pos.x,
+                y: update.pos.y,
+                multiplier: mult,
+              });
               onBallLandedRef.current?.(ball.dropId, ball.slotIndex);
               countChanged = true;
             }
@@ -281,8 +396,6 @@ const PlinkoBoard = forwardRef<PlinkoBoardHandle, PlinkoBoardProps>(
             onBallCountChangeRef.current?.(balls.length);
           }
 
-          // ---- Update peg glows ----
-          // Only redraw pegs that were glowing last frame (reset to base)
           const dirty = dirtyPegsRef.current;
           for (const idx of dirty) {
             const pg = pegs[idx];
@@ -295,7 +408,6 @@ const PlinkoBoard = forwardRef<PlinkoBoardHandle, PlinkoBoardProps>(
           }
           dirty.clear();
 
-          // Apply active glows (redraw only glowing pegs)
           for (let i = glows.length - 1; i >= 0; i--) {
             const glow = glows[i];
             const elapsed = now - glow.startTime;
@@ -314,6 +426,8 @@ const PlinkoBoard = forwardRef<PlinkoBoardHandle, PlinkoBoardProps>(
             }
           }
 
+          coord?.tick(now, dt);
+
           rafId = requestAnimationFrame(tick);
         };
 
@@ -323,6 +437,8 @@ const PlinkoBoard = forwardRef<PlinkoBoardHandle, PlinkoBoardProps>(
       return () => {
         destroyed = true;
         cancelAnimationFrame(rafId);
+        coordinatorRef.current?.destroy();
+        coordinatorRef.current = null;
         terminateWorker();
         if (appRef.current) {
           appRef.current.destroy({ removeView: true }, { children: true });
@@ -332,13 +448,11 @@ const PlinkoBoard = forwardRef<PlinkoBoardHandle, PlinkoBoardProps>(
         pegGlowsRef.current = [];
         ballGraphicsRef.current.clear();
       };
-    }, []); // Single mount — rows changes are handled by rebuild
+    }, []);
 
-    // Rebuild board when rows prop changes
     useEffect(() => {
       const app = appRef.current;
       if (app) {
-        // Clear all in-flight balls
         for (const [, g] of ballGraphicsRef.current) {
           g.destroy();
         }
@@ -351,17 +465,16 @@ const PlinkoBoard = forwardRef<PlinkoBoardHandle, PlinkoBoardProps>(
       }
     }, [rows, buildBoard]);
 
-    // Update slot labels when multipliers change (text-only, no board rebuild)
     useEffect(() => {
       multipliersRef.current = multipliers;
       if (!slotTextsRef.current || !multipliers) return;
+      const useCompact = rows >= 14;
       multipliers.forEach((m, idx) => {
         const text = slotTextsRef.current?.[idx];
-        if (text) text.text = formatMultiplier(m);
+        if (text) text.text = formatMultiplier(m, useCompact);
       });
-    }, [multipliers]);
+    }, [multipliers, rows]);
 
-    // ---- Drop ball API ----
     let nextDropId = 1;
 
     const dropBall = useCallback(
@@ -400,8 +513,6 @@ const PlinkoBoard = forwardRef<PlinkoBoardHandle, PlinkoBoardProps>(
 );
 
 export default PlinkoBoard;
-
-// ---- Utility: linear color interpolation ----
 
 function lerpColor(a: number, b: number, t: number): number {
   const ar = (a >> 16) & 0xff;

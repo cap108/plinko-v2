@@ -4,9 +4,9 @@ import type { SimPosition, PegHitEvent, SimulationResult } from './physics';
 export type SpeedPreset = 'slow' | 'regular' | 'turbo';
 
 const SPEED_MULTIPLIERS: Record<SpeedPreset, number> = {
-  slow: 0.5,
-  regular: 1.0,
-  turbo: 2.5,
+  slow: 1.2,
+  regular: 2.5,
+  turbo: 4.5,
 };
 
 // ---- Playback state for a single ball ----
