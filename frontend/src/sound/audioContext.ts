@@ -1,7 +1,9 @@
 let ctx: AudioContext | null = null;
 let masterGain: GainNode | null = null;
 
-/** Create the AudioContext and master gain. Call ONLY from a user-gesture handler. */
+/** Create the AudioContext and master gain. Call ONLY from a user-gesture handler.
+ *  On iOS, we route Web Audio through a MediaStream → <audio> element so that
+ *  synthesized sounds bypass the silent/ringer switch (same as background music). */
 function createContext(): void {
   if (ctx) return;
   try {
@@ -9,6 +11,21 @@ function createContext(): void {
     masterGain = ctx.createGain();
     masterGain.gain.value = 0.3;
     masterGain.connect(ctx.destination);
+
+    // iOS silent-mode bypass: pipe Web Audio into an <audio> element.
+    // Once an <audio> element is playing a MediaStream from the AudioContext,
+    // iOS treats all output from that context as user-initiated media.
+    try {
+      const dest = ctx.createMediaStreamDestination();
+      masterGain.connect(dest);
+      const bypass = new Audio();
+      bypass.srcObject = dest.stream;
+      bypass.volume = 1;
+      // play() must happen inside a user gesture (createContext is only called from one)
+      void bypass.play().catch(() => {});
+    } catch {
+      // MediaStreamDestination not supported — SFX will respect silent switch
+    }
   } catch {
     ctx = null;
     masterGain = null;
