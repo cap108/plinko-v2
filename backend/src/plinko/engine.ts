@@ -3,7 +3,7 @@
  * Uses only server-side crypto RNG; no client input affects the draw.
  */
 import { randomBytes } from 'crypto';
-import { getConfig } from './config.js';
+import { getEffectiveSlotConfig } from './config.js';
 
 export interface PlinkoOutcome {
   slotIndex: number;
@@ -44,7 +44,7 @@ export function resolveOutcome(
   risk: string,
   betAmountCents: number,
 ): PlinkoOutcome | null {
-  const config = getConfig(rows, risk);
+  const config = getEffectiveSlotConfig(rows, risk);
   if (!config || config.multipliers.length === 0) return null;
 
   const slotIndex = weightedSample(config.weights);

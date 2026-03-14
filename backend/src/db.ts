@@ -44,6 +44,23 @@ export function initDb(): Database.Database {
 
     CREATE INDEX IF NOT EXISTS idx_history_session
       ON history(session_id, timestamp DESC);
+
+    CREATE TABLE IF NOT EXISTS admin_config (
+      key TEXT PRIMARY KEY,
+      value TEXT NOT NULL,
+      updated_at INTEGER NOT NULL
+    );
+
+    CREATE TABLE IF NOT EXISTS admin_audit_log (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      action TEXT NOT NULL,
+      detail TEXT NOT NULL,
+      ip_hash TEXT,
+      timestamp INTEGER NOT NULL
+    );
+
+    CREATE INDEX IF NOT EXISTS idx_audit_timestamp
+      ON admin_audit_log(timestamp DESC);
   `);
 
   logger.info({ dbPath }, 'Database initialized');

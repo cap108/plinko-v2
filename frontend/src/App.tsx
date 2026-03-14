@@ -1,4 +1,5 @@
-import { useRef, useCallback, useState, useEffect, type JSX } from 'react';
+import { useRef, useCallback, useState, useEffect, lazy, Suspense, type JSX } from 'react';
+import { Routes, Route } from 'react-router-dom';
 import type { SpeedPreset } from '@/plinko/playback';
 import PlinkoBoard, { type PlinkoBoardHandle } from '@/components/PlinkoBoard';
 import { usePlinko } from '@/hooks/usePlinko';
@@ -11,6 +12,8 @@ import { Layout } from '@/components/Layout';
 import { ControlsPanel } from '@/components/ControlsPanel';
 import { StatsPanel } from '@/components/StatsPanel';
 import { ensureAudioResumed, startBackgroundMusic } from '@/sound/audioContext';
+
+const AdminApp = lazy(() => import('./admin/AdminApp'));
 
 function isTransientError(msg: string): boolean {
   return !msg.includes('Insufficient') && !msg.includes('too fast') && !msg.includes('too many');
@@ -185,95 +188,119 @@ export default function App() {
     plinko.resetBalance();
   }, [autoBet.stop, plinko.resetBalance]);
 
-  if (plinko.loading) return <LoadingScreen />;
-  if (!plinko.config && plinko.error) return <ErrorScreen error={plinko.error} />;
+  if (plinko.loading) return <Routes>
+    <Route path="/admin/*" element={
+      <Suspense fallback={<div className="min-h-screen bg-surface flex items-center justify-center text-text-secondary">Loading admin...</div>}>
+        <AdminApp />
+      </Suspense>
+    } />
+    <Route path="*" element={<LoadingScreen />} />
+  </Routes>;
+  if (!plinko.config && plinko.error) return <Routes>
+    <Route path="/admin/*" element={
+      <Suspense fallback={<div className="min-h-screen bg-surface flex items-center justify-center text-text-secondary">Loading admin...</div>}>
+        <AdminApp />
+      </Suspense>
+    } />
+    <Route path="*" element={<ErrorScreen error={plinko.error} />} />
+  </Routes>;
 
   return (
-    <>
-      <Layout
-        header={
-          <header className="h-14 flex items-center px-4 border-b border-border-subtle">
-            <h1 className="text-accent-cyan font-bold text-lg font-heading">
-              PlinkoVibe
-            </h1>
-            {autoBet.active && (
-              <span className="text-accent-red text-xs font-bold animate-pulse ml-2">AUTO</span>
-            )}
-            <div className="ml-auto flex items-center gap-1">
-              <HotkeysHint />
-              <MuteButton
-                musicMuted={plinko.musicMuted}
-                sfxMuted={plinko.sfxMuted}
-                onToggleMusic={plinko.toggleMusic}
-                onToggleSfx={plinko.toggleSfx}
-              />
-            </div>
-          </header>
-        }
-        renderControls={() => (
-          <ControlsPanel
-            betAmount={plinko.betAmount}
-            setBetAmount={plinko.setBetAmount}
-            numBalls={plinko.numBalls}
-            setNumBalls={plinko.setNumBalls}
-            rows={plinko.rows}
-            setRows={plinko.setRows}
-            riskLevel={plinko.riskLevel}
-            setRiskLevel={plinko.setRiskLevel}
-            speed={plinko.speed}
-            setSpeed={plinko.setSpeed}
-            balance={plinko.balance}
-            playing={plinko.playing}
-            betPending={plinko.betPending}
+    <Routes>
+      <Route path="/admin/*" element={
+        <Suspense fallback={<div className="min-h-screen bg-surface flex items-center justify-center text-text-secondary">Loading admin...</div>}>
+          <AdminApp />
+        </Suspense>
+      } />
+      <Route path="*" element={
+        <>
+          <Layout
             config={plinko.config}
-            error={plinko.error}
-            clearError={plinko.clearError}
-            placeBet={plinko.placeBet}
+            header={
+              <header className="h-14 flex items-center px-4 border-b border-border-subtle">
+                <h1 className="text-accent-cyan font-bold text-lg font-heading">
+                  PlinkoVibe
+                </h1>
+                {autoBet.active && (
+                  <span className="text-accent-red text-xs font-bold animate-pulse ml-2">AUTO</span>
+                )}
+                <div className="ml-auto flex items-center gap-1">
+                  <HotkeysHint />
+                  <MuteButton
+                    musicMuted={plinko.musicMuted}
+                    sfxMuted={plinko.sfxMuted}
+                    onToggleMusic={plinko.toggleMusic}
+                    onToggleSfx={plinko.toggleSfx}
+                  />
+                </div>
+              </header>
+            }
+            renderControls={() => (
+              <ControlsPanel
+                betAmount={plinko.betAmount}
+                setBetAmount={plinko.setBetAmount}
+                numBalls={plinko.numBalls}
+                setNumBalls={plinko.setNumBalls}
+                rows={plinko.rows}
+                setRows={plinko.setRows}
+                riskLevel={plinko.riskLevel}
+                setRiskLevel={plinko.setRiskLevel}
+                speed={plinko.speed}
+                setSpeed={plinko.setSpeed}
+                balance={plinko.balance}
+                playing={plinko.playing}
+                betPending={plinko.betPending}
+                config={plinko.config}
+                error={plinko.error}
+                clearError={plinko.clearError}
+                placeBet={plinko.placeBet}
+                autoBetActive={autoBet.active}
+                autoBetRoundsCompleted={autoBet.roundsCompleted}
+                autoBetConfig={autoBet.config}
+                onAutoBetConfigChange={autoBet.setConfig}
+                onAutoBetToggle={autoBet.toggle}
+                autoBetStopReason={autoBet.stopReason}
+                activeBallCount={ballCount}
+              />
+            )}
+            board={
+              <MobileSpeedOverlay speed={plinko.speed} setSpeed={plinko.setSpeed}>
+                <PlinkoBoard
+                  ref={boardRef}
+                  rows={plinko.rows}
+                  speed={plinko.speed}
+                  multipliers={plinko.currentMultipliers ?? undefined}
+                  onBallLanded={plinko.handleBallLanded}
+                  onBallCountChange={setBallCount}
+                  reducedMotion={reducedMotion}
+                  muted={plinko.sfxMuted}
+                />
+              </MobileSpeedOverlay>
+            }
+            renderStats={() => (
+              <StatsPanel
+                balance={plinko.balance}
+                lastResults={plinko.lastResults}
+                totalWagered={plinko.totalWagered}
+                totalWon={plinko.totalWon}
+                sessionStartTime={plinko.sessionStartTime}
+                resetBalance={handleResetBalance}
+              />
+            )}
             autoBetActive={autoBet.active}
             autoBetRoundsCompleted={autoBet.roundsCompleted}
-            autoBetConfig={autoBet.config}
-            onAutoBetConfigChange={autoBet.setConfig}
-            onAutoBetToggle={autoBet.toggle}
-            autoBetStopReason={autoBet.stopReason}
-            activeBallCount={ballCount}
+            onStopAutoBet={autoBet.stop}
           />
-        )}
-        board={
-          <MobileSpeedOverlay speed={plinko.speed} setSpeed={plinko.setSpeed}>
-            <PlinkoBoard
-              ref={boardRef}
-              rows={plinko.rows}
-              speed={plinko.speed}
-              multipliers={plinko.currentMultipliers ?? undefined}
-              onBallLanded={plinko.handleBallLanded}
-              onBallCountChange={setBallCount}
-              reducedMotion={reducedMotion}
-              muted={plinko.sfxMuted}
-            />
-          </MobileSpeedOverlay>
-        }
-        renderStats={() => (
-          <StatsPanel
-            balance={plinko.balance}
-            lastResults={plinko.lastResults}
-            totalWagered={plinko.totalWagered}
-            totalWon={plinko.totalWon}
-            sessionStartTime={plinko.sessionStartTime}
-            resetBalance={handleResetBalance}
-          />
-        )}
-        autoBetActive={autoBet.active}
-        autoBetRoundsCompleted={autoBet.roundsCompleted}
-        onStopAutoBet={autoBet.stop}
-      />
-      {showSplash && (
-        <SplashScreen onDismiss={() => {
-          setShowSplash(false);
-          ensureAudioResumed();
-          if (!plinko.musicMuted) startBackgroundMusic();
-        }} />
-      )}
-      <div aria-live="assertive" className="sr-only">{srAnnouncement}</div>
-    </>
+          {showSplash && (
+            <SplashScreen onDismiss={() => {
+              setShowSplash(false);
+              ensureAudioResumed();
+              if (!plinko.musicMuted) startBackgroundMusic();
+            }} />
+          )}
+          <div aria-live="assertive" className="sr-only">{srAnnouncement}</div>
+        </>
+      } />
+    </Routes>
   );
 }

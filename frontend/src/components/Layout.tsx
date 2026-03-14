@@ -1,10 +1,12 @@
 import { useState } from 'react';
+import type { ConfigResponse } from '@plinko-v2/shared';
 
 interface LayoutProps {
   header: React.ReactNode;
   renderControls: () => React.ReactNode;
   renderStats: () => React.ReactNode;
   board: React.ReactNode;
+  config?: ConfigResponse | null;
   // Auto-bet status bar (mobile)
   autoBetActive: boolean;
   autoBetRoundsCompleted: number;
@@ -12,7 +14,7 @@ interface LayoutProps {
 }
 
 export function Layout({
-  header, renderControls, renderStats, board,
+  header, renderControls, renderStats, board, config,
   autoBetActive, autoBetRoundsCompleted, onStopAutoBet,
 }: LayoutProps) {
   const [mobileTab, setMobileTab] = useState<'controls' | 'stats'>('controls');
@@ -20,6 +22,12 @@ export function Layout({
   return (
     <div className="h-[100dvh] flex flex-col bg-surface overflow-hidden">
       {header}
+      {config?.maintenanceMode && (
+        <div className="shrink-0 bg-orange-600/90 text-white text-center py-2 text-sm font-bold"
+             role="status">
+          Game is temporarily paused for maintenance
+        </div>
+      )}
 
       {/* Desktop layout */}
       <main className="hidden lg:flex flex-1 flex-row overflow-hidden min-h-0">

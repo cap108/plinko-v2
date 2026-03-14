@@ -1,63 +1,25 @@
 import { Router, type Request, type Response } from 'express';
 import { v4 as uuidv4 } from 'uuid';
 import { z } from 'zod';
-import { Mutex } from 'async-mutex';
-import { createHash } from 'crypto';
 import rateLimit from 'express-rate-limit';
 import type { RowCount, RiskLevel } from '@plinko-v2/shared';
 import type { Store } from '../store.js';
 import { resolveOutcome } from '../plinko/engine.js';
 import {
   ALLOWED_ROWS, ALLOWED_RISK, DEFAULT_ROWS, DEFAULT_RISK,
-  MIN_BET, MAX_BET, INITIAL_BALANCE_CENTS, MAX_BET_COUNT,
-  getAllPaytables,
+  INITIAL_BALANCE_CENTS,
+  getEffectiveConfig, getEffectivePaytables,
 } from '../plinko/config.js';
 import { logger } from '../logger.js';
-
-// ---- IP Hashing ----
-
-const IP_HASH_SALT = process.env.IP_HASH_SALT ?? 'plinko-v2-dev-salt';
+import { BetError, hashIp, getSessionLock } from '../utils.js';
+export { cleanupSessionLocks } from '../utils.js';
 
 if (!process.env.IP_HASH_SALT && process.env.NODE_ENV === 'production') {
   logger.warn('IP_HASH_SALT not set — using default dev salt. Set this env var in production.');
 }
 
-function hashIp(ip: string): string {
-  return createHash('sha256').update(IP_HASH_SALT + ip).digest('hex').slice(0, 16);
-}
-
 function clientIp(req: Request): string {
   return req.ip ?? req.socket.remoteAddress ?? 'unknown';
-}
-
-// ---- Per-Session Mutex ----
-
-const sessionLocks = new Map<string, Mutex>();
-
-function getSessionLock(sessionId: string): Mutex {
-  let lock = sessionLocks.get(sessionId);
-  if (!lock) {
-    lock = new Mutex();
-    sessionLocks.set(sessionId, lock);
-  }
-  return lock;
-}
-
-export function cleanupSessionLocks(activeSessionIds: Set<string>): void {
-  for (const sessionId of sessionLocks.keys()) {
-    if (!activeSessionIds.has(sessionId)) {
-      sessionLocks.delete(sessionId);
-    }
-  }
-}
-
-// ---- BetError ----
-
-class BetError extends Error {
-  constructor(public readonly status: number, message: string) {
-    super(message);
-    this.name = 'BetError';
-  }
 }
 
 // ---- Zod Schemas ----
@@ -66,16 +28,14 @@ const SessionIdSchema = z.string().uuid({ message: 'Invalid sessionId format' })
 
 const BetBodySchema = z.object({
   sessionId: SessionIdSchema,
-  betAmount: z.number().finite()
-    .min(MIN_BET, `betAmount must be at least ${MIN_BET}`)
-    .max(MAX_BET, `betAmount must be at most ${MAX_BET}`),
+  betAmount: z.number().finite().positive(),
   rows: z.number().refine(
     (v): v is (typeof ALLOWED_ROWS)[number] =>
       (ALLOWED_ROWS as readonly number[]).includes(v),
     { message: `rows must be one of ${ALLOWED_ROWS.join(', ')}` },
   ),
   riskLevel: z.enum(['low', 'medium', 'high'] as const),
-  count: z.number().int().min(1).max(MAX_BET_COUNT).optional().default(1),
+  count: z.number().int().min(1).max(1000).optional().default(1),
 });
 
 const SessionIdQuerySchema = z.object({ sessionId: SessionIdSchema });
@@ -117,6 +77,11 @@ export function createRouter(store: Store): Router {
 
   // POST /api/session
   router.post('/session', sessionCreateLimit as unknown as import('express').RequestHandler, (req: Request, res: Response) => {
+    if (getEffectiveConfig().maintenanceMode) {
+      res.status(503).json({ error: 'Game is temporarily paused for maintenance' });
+      return;
+    }
+
     if (store.sessionCount() >= 10_000) {
       logger.warn({ ip: clientIp(req) }, 'Session creation rejected: max sessions reached');
       res.status(503).json({ error: 'Service unavailable' });
@@ -149,20 +114,27 @@ export function createRouter(store: Store): Router {
       res.status(404).json({ error: 'Session not found' });
       return;
     }
+    const effective = getEffectiveConfig();
     res.json({
       rows: [...ALLOWED_ROWS],
       riskLevels: [...ALLOWED_RISK],
-      paytables: getAllPaytables(),
+      paytables: getEffectivePaytables(),
       defaultRows: DEFAULT_ROWS,
       defaultRisk: DEFAULT_RISK,
-      minBet: MIN_BET,
-      maxBet: MAX_BET,
-      maxBallCount: MAX_BET_COUNT,
+      minBet: effective.minBetCents / 100,
+      maxBet: effective.maxBetCents / 100,
+      maxBallCount: effective.maxBetCount,
+      maintenanceMode: effective.maintenanceMode,
     });
   });
 
   // POST /api/plinko/bet
   router.post('/plinko/bet', betLimit as unknown as import('express').RequestHandler, async (req: Request, res: Response) => {
+    if (getEffectiveConfig().maintenanceMode) {
+      res.status(503).json({ error: 'Game is temporarily paused for maintenance' });
+      return;
+    }
+
     const parse = BetBodySchema.safeParse(req.body);
     if (!parse.success) {
       const message = parse.error.issues[0]?.message ?? 'Invalid request';
@@ -172,6 +144,23 @@ export function createRouter(store: Store): Router {
     }
     const { sessionId, betAmount, rows, riskLevel, count } = parse.data;
 
+    // Read effective config ONCE per request
+    const effective = getEffectiveConfig();
+    const betAmountCents = Math.round(betAmount * 100);
+
+    if (betAmountCents < effective.minBetCents) {
+      res.status(400).json({ error: `Minimum bet is $${(effective.minBetCents / 100).toFixed(2)}` });
+      return;
+    }
+    if (betAmountCents > effective.maxBetCents) {
+      res.status(400).json({ error: `Maximum bet is $${(effective.maxBetCents / 100).toFixed(2)}` });
+      return;
+    }
+    if (count > effective.maxBetCount) {
+      res.status(400).json({ error: `Maximum ${effective.maxBetCount} balls per bet` });
+      return;
+    }
+
     // Fast-fail if session doesn't exist
     if (!store.getSession(sessionId)) {
       logger.warn({ sessionId, ip: clientIp(req) }, 'Bet rejected: session not found');
@@ -179,7 +168,6 @@ export function createRouter(store: Store): Router {
       return;
     }
 
-    const betAmountCents = Math.round(betAmount * 100);
     const totalBetCents = betAmountCents * count;
 
     try {

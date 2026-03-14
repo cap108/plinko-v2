@@ -238,6 +238,11 @@ export function usePlinko(options: UsePlinkoOptions): UsePlinkoReturn {
 
     if (!sessionId || !config || betPending) return;
 
+    if (config.maintenanceMode) {
+      setError('Game is temporarily paused for maintenance');
+      return;
+    }
+
     ensureAudioResumed();
 
     const count = Math.max(1, Math.min(MAX_BET_COUNT, Math.floor(numBalls)));

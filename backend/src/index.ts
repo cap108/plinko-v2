@@ -7,6 +7,9 @@ import { logger } from './logger.js';
 import { initDb } from './db.js';
 import { Store } from './store.js';
 import { createRouter } from './routes/index.js';
+import { AdminStore } from './admin/adminStore.js';
+import { createAdminRouter } from './routes/admin.js';
+import { setOverrideProvider } from './plinko/config.js';
 
 const app = express();
 const PORT = Number(process.env.PORT ?? 4000);
@@ -14,6 +17,9 @@ const PORT = Number(process.env.PORT ?? 4000);
 const db = initDb();
 const store = new Store(db);
 store.startCleanupInterval();
+
+const adminStore = new AdminStore(db);
+setOverrideProvider(adminStore);
 
 // ---- Trust proxy ----
 if (process.env.BEHIND_TLS_PROXY === 'true') {
@@ -32,8 +38,8 @@ const corsOrigins = process.env.CORS_ORIGINS
 
 app.use(cors({
   origin: corsOrigins,
-  methods: ['GET', 'POST', 'OPTIONS'],
-  allowedHeaders: ['Content-Type'],
+  methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
+  allowedHeaders: ['Content-Type', 'Authorization'],
   credentials: false,
 }) as unknown as express.RequestHandler);
 
@@ -55,9 +61,6 @@ app.use(helmet({
   hsts: { maxAge: 31_536_000, includeSubDomains: true },
 }) as unknown as express.RequestHandler);
 
-// ---- Body parser (before rate limiting so Phase 3 per-route limiters can read req.body) ----
-app.use(express.json({ limit: '4kb' }));
-
 // ---- Request logging (before rate limiting so 429s are logged for security monitoring) ----
 app.use(pinoHttp({ logger }));
 
@@ -74,6 +77,13 @@ app.use('/api', (_req, res, next) => {
   res.setHeader('Cache-Control', 'no-store');
   next();
 });
+
+// CRITICAL: Mount admin routes with 64kb body parser BEFORE the global 4kb parser
+const adminRouter = createAdminRouter(store, adminStore);
+app.use('/api/admin', express.json({ limit: '64kb' }), adminRouter);
+
+// MOVED: Global 4kb body parser (was before rate limiting, now after admin mount)
+app.use(express.json({ limit: '4kb' }));
 
 // ---- API routes ----
 app.use('/api', createRouter(store));
