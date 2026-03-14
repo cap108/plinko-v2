@@ -20,7 +20,7 @@ export function Layout({
   const [mobileTab, setMobileTab] = useState<'controls' | 'stats'>('controls');
 
   return (
-    <div className="h-[100dvh] flex flex-col bg-surface overflow-hidden">
+    <div className="h-[100dvh] flex flex-col bg-surface overflow-hidden pt-[env(safe-area-inset-top)] pb-[env(safe-area-inset-bottom)]">
       <a
         href="#plinko-board"
         className="sr-only focus:not-sr-only focus:absolute focus:z-50 focus:top-2 focus:left-2
@@ -113,7 +113,7 @@ export function Layout({
             id="tabpanel-controls"
             role="tabpanel"
             aria-labelledby="tab-controls"
-            className="flex-1 px-3 py-2 pb-[max(0.5rem,env(safe-area-inset-bottom))] overflow-y-auto min-h-0"
+            className="flex-1 px-3 py-2 overflow-y-auto min-h-0"
             hidden={mobileTab !== 'controls'}
           >
             {renderControls()}
@@ -122,7 +122,7 @@ export function Layout({
             id="tabpanel-stats"
             role="tabpanel"
             aria-labelledby="tab-stats"
-            className="flex-1 px-3 py-2 pb-[max(0.5rem,env(safe-area-inset-bottom))] overflow-y-auto min-h-0"
+            className="flex-1 px-3 py-2 overflow-y-auto min-h-0"
             hidden={mobileTab !== 'stats'}
           >
             {renderStats()}
