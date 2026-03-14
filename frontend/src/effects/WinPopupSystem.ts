@@ -12,12 +12,11 @@ interface Popup {
   startY: number;
 }
 
-function getTierStyle(multiplier: number, alwaysShow: boolean): { fontSize: number; color: number } {
-  if (multiplier >= 20) return { fontSize: 22, color: 0xffd700 };
-  if (multiplier >= 5) return { fontSize: 16, color: 0xff006e };
-  if (multiplier >= 2) return { fontSize: 12, color: 0x00e5ff };
-  // Below 2x — only shown in alwaysShow mode (dense slots)
-  return { fontSize: alwaysShow ? 14 : 12, color: 0x00e5ff };
+function getTierFontSize(multiplier: number, alwaysShow: boolean): number {
+  if (multiplier >= 20) return 22;
+  if (multiplier >= 5) return 16;
+  if (multiplier >= 2) return 12;
+  return alwaysShow ? 14 : 12;
 }
 
 export class WinPopupSystem {
@@ -28,6 +27,8 @@ export class WinPopupSystem {
   alwaysShowPopup: boolean = false;
   /** Canvas width — set by reconfigure so popups can be clamped to visible area */
   canvasWidth: number = 0;
+  /** Text resolution — set by reconfigure to match container scale */
+  textResolution: number = 1;
 
   constructor(parentContainer: Container) {
     this.container = parentContainer;
@@ -55,7 +56,7 @@ export class WinPopupSystem {
     }
   }
 
-  show(x: number, y: number, multiplier: number, force = false): void {
+  show(x: number, y: number, multiplier: number, force = false, slotColor?: number): void {
     if (!force && !this.enabled) return;
     if (!force && !this.alwaysShowPopup && multiplier < 2) return;
 
@@ -73,11 +74,13 @@ export class WinPopupSystem {
     }
     if (!popup) return; // Pool exhausted, skip
 
-    const { fontSize, color } = getTierStyle(multiplier, this.alwaysShowPopup);
+    const fontSize = getTierFontSize(multiplier, this.alwaysShowPopup);
+    const color = slotColor ?? 0x00e5ff;
 
     popup.text.text = `${multiplier}x`;
     popup.text.style.fontSize = fontSize;
     popup.text.style.fill = color;
+    popup.text.resolution = this.textResolution;
     popup.text.visible = true;
     popup.text.alpha = 1;
 

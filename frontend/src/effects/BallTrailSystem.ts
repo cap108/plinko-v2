@@ -5,7 +5,7 @@ const TRAIL_LENGTH = 6;
 const TRAIL_ALPHAS = [0.30, 0.22, 0.15, 0.10, 0.06, 0.03];
 const TRAIL_SCALES = [0.90, 0.78, 0.66, 0.54, 0.42, 0.30]; // taper from near-full to small
 const MAX_TRACKED_BALLS = 15;
-const MIN_DISTANCE_SQ = 4; // 2px minimum — tight spacing for smooth connected trail
+const MIN_DISTANCE_SQ = 1; // 1px minimum — tight spacing for smooth connected trail
 
 interface BallTrail {
   positions: Array<{ x: number; y: number }>;

@@ -1,11 +1,12 @@
-import { useRef, useEffect } from 'react';
+import { useRef, useEffect, useState } from 'react';
 
 interface SplashScreenProps {
-  onDismiss: () => void;
+  onDismiss: (skipFuture: boolean) => void;
 }
 
 export function SplashScreen({ onDismiss }: SplashScreenProps) {
   const buttonRef = useRef<HTMLButtonElement>(null);
+  const [skipNextTime, setSkipNextTime] = useState(false);
   useEffect(() => { buttonRef.current?.focus(); }, []);
 
   return (
@@ -40,9 +41,19 @@ export function SplashScreen({ onDismiss }: SplashScreenProps) {
           </p>
         </div>
 
+        <label className="flex items-center gap-3 cursor-pointer mb-6 select-none">
+          <input
+            type="checkbox"
+            checked={skipNextTime}
+            onChange={(e) => setSkipNextTime(e.target.checked)}
+            className="w-4 h-4 rounded border-border-subtle accent-accent-cyan cursor-pointer"
+          />
+          <span className="text-text-secondary text-sm">Don't show this again</span>
+        </label>
+
         <button
           ref={buttonRef}
-          onClick={onDismiss}
+          onClick={() => onDismiss(skipNextTime)}
           className="w-full py-4 rounded-xl bg-accent-cyan text-surface font-bold text-lg
             hover:brightness-110 transition-all min-h-[56px]
             focus-visible:ring-2 focus-visible:ring-accent-cyan focus-visible:ring-offset-2 focus-visible:ring-offset-surface"

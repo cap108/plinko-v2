@@ -166,8 +166,28 @@ const webglAvailable = checkWebGL();
 export default function App() {
   const boardRef = useRef<PlinkoBoardHandle>(null);
   const [ballCount, setBallCount] = useState(0);
-  const [showSplash, setShowSplash] = useState(true);
+  const [showSplash, setShowSplash] = useState(() => {
+    try { return localStorage.getItem('plinko_skip_splash') !== 'true'; } catch { return true; }
+  });
   const reducedMotion = useReducedMotion();
+
+  // When splash is skipped, start music on first user interaction
+  useEffect(() => {
+    if (showSplash) return;
+    const handler = () => {
+      ensureAudioResumed();
+      const musicMuted = localStorage.getItem('plinko_music_muted') === 'true';
+      if (!musicMuted) startBackgroundMusic();
+      document.removeEventListener('click', handler);
+      document.removeEventListener('keydown', handler);
+    };
+    document.addEventListener('click', handler, { once: true });
+    document.addEventListener('keydown', handler, { once: true });
+    return () => {
+      document.removeEventListener('click', handler);
+      document.removeEventListener('keydown', handler);
+    };
+  }, [showSplash]);
 
   if (!webglAvailable) return <WebGLError />;
 
@@ -355,8 +375,11 @@ export default function App() {
             onStopAutoBet={autoBet.stop}
           />
           {showSplash && (
-            <SplashScreen onDismiss={() => {
+            <SplashScreen onDismiss={(skipFuture) => {
               setShowSplash(false);
+              if (skipFuture) {
+                try { localStorage.setItem('plinko_skip_splash', 'true'); } catch {}
+              }
               ensureAudioResumed();
               if (!plinko.musicMuted) startBackgroundMusic();
             }} />

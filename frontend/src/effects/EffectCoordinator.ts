@@ -93,7 +93,7 @@ export class EffectCoordinator {
         if (this.denseSlots || event.multiplier >= 2) {
           // Win popup suppression at >20 balls: suppress below 5x (unless dense mode)
           if (!this.denseSlots && this.activeBallCount > 20 && event.multiplier < 5) break;
-          this.popups?.show(event.x, event.y, event.multiplier);
+          this.popups?.show(event.x, event.y, event.multiplier, false, event.slotColor);
         }
         break;
       }
@@ -135,9 +135,9 @@ export class EffectCoordinator {
   }
 
   /** Show a multiplier label popup without triggering sound/particles (for slot taps). */
-  showSlotLabel(x: number, y: number, multiplier: number): void {
+  showSlotLabel(x: number, y: number, multiplier: number, slotColor?: number): void {
     this.ensureSubsystems();
-    this.popups?.show(x, y, multiplier, true);
+    this.popups?.show(x, y, multiplier, true, slotColor);
   }
 
   /** Clear active effects and detach sprites from containers (before container destruction). */
@@ -148,7 +148,7 @@ export class EffectCoordinator {
   }
 
   /** Re-parent subsystem sprites to the current container refs. Call after buildBoard(). */
-  reconfigure(_scale: number, _offsetX: number, _offsetY: number): void {
+  reconfigure(scale: number, _offsetX: number, _offsetY: number): void {
     const effectLayer = this.effectLayerRef.current;
     const ballLayer = this.ballLayerRef.current;
 
@@ -161,6 +161,7 @@ export class EffectCoordinator {
     if (effectLayer && this.popups) {
       this.popups.reparent(effectLayer);
       this.popups.canvasWidth = BOARD_WIDTH;
+      this.popups.textResolution = Math.ceil(scale * (window.devicePixelRatio ?? 1));
     }
   }
 

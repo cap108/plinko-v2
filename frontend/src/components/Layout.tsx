@@ -51,7 +51,7 @@ export function Layout({
           h-[48%] lg:h-auto
           lg:min-h-0 lg:overflow-hidden
         ">
-          <div className="w-full h-full lg:h-auto max-w-lg lg:aspect-[3/4]">
+          <div className="w-full h-full max-w-4xl mx-auto">
             {board}
           </div>
         </div>

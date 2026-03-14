@@ -179,8 +179,10 @@ const PlinkoBoard = forwardRef<PlinkoBoardHandle, PlinkoBoardProps>(
       const scaleY = app.screen.height / boardH;
       const scale = Math.min(scaleX, scaleY);
       const offsetX = (app.screen.width - BOARD_WIDTH * scale) / 2;
-      const isMobile = app.screen.width < 768;
+      const isMobile = app.screen.width < 1024;
       const offsetY = isMobile ? 0 : (app.screen.height - boardH * scale) / 2;
+
+      const textRes = Math.ceil(scale * (window.devicePixelRatio ?? 1));
 
       for (const layer of [pegLayer, glowLayer, ballLayer, slotLayer, effectLayer]) {
         layer.scale.set(scale);
@@ -231,7 +233,7 @@ const PlinkoBoard = forwardRef<PlinkoBoardHandle, PlinkoBoardProps>(
           const showLabel = () => {
             const mult = multipliersRef.current?.[slotIndex];
             if (mult != null) {
-              coordinatorRef.current?.showSlotLabel(cx, slotYPos - slotHalfH, mult);
+              coordinatorRef.current?.showSlotLabel(cx, slotYPos - slotHalfH, mult, color);
             }
           };
           bg.on('pointertap', showLabel);
@@ -251,7 +253,7 @@ const PlinkoBoard = forwardRef<PlinkoBoardHandle, PlinkoBoardProps>(
             fontWeight: 'bold',
             fill: color,
           });
-          const text = new Text({ text: label, style });
+          const text = new Text({ text: label, style, resolution: textRes });
           text.anchor.set(0.5);
           text.position.set(cx, slotYPos);
           slotLayer.addChild(text);
@@ -269,7 +271,7 @@ const PlinkoBoard = forwardRef<PlinkoBoardHandle, PlinkoBoardProps>(
             fontWeight: 'bold',
             fill: color,
           });
-          const text = new Text({ text: label, style });
+          const text = new Text({ text: label, style, resolution: textRes });
           text.anchor.set(0.5);
           text.position.set(cx, anchorY);
           slotLayer.addChild(text);
@@ -471,11 +473,13 @@ const PlinkoBoard = forwardRef<PlinkoBoardHandle, PlinkoBoardProps>(
 
             if (update.justLanded) {
               const mult = multipliersRef.current?.[ball.slotIndex] ?? 1;
+              const totalSlots = rowsRef.current + 1;
               coord?.handleEvent({
                 type: 'ballLanded',
                 x: update.pos.x,
                 y: update.pos.y,
                 multiplier: mult,
+                slotColor: getSlotColor(ball.slotIndex, totalSlots),
               });
               onBallLandedRef.current?.(ball.dropId, ball.slotIndex);
               countChanged = true;
