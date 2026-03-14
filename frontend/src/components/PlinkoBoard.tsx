@@ -98,6 +98,7 @@ const PlinkoBoard = forwardRef<PlinkoBoardHandle, PlinkoBoardProps>(
     const pegGraphicsRef = useRef<Graphics[]>([]);
     const ballGraphicsRef = useRef<Map<number, Graphics>>(new Map());
     const slotTextsRef = useRef<Text[]>([]);
+    const anchorTextsRef = useRef<{ text: Text; slotIndex: number }[]>([]);
     const coordinatorRef = useRef<EffectCoordinator | null>(null);
     const effectLayerRef = useRef<Container | null>(null);
     const rowsRef = useRef(rows);
@@ -176,6 +177,7 @@ const PlinkoBoard = forwardRef<PlinkoBoardHandle, PlinkoBoardProps>(
       const slotYPos = getSlotY(rowCount);
       const denseSlots = rowCount >= 12; // hide in-slot text, show anchor labels instead
       slotTextsRef.current = [];
+      anchorTextsRef.current = [];
 
       // Determine which slots get anchor labels (edges + center)
       const centerSlot = Math.floor(totalSlots / 2);
@@ -248,6 +250,7 @@ const PlinkoBoard = forwardRef<PlinkoBoardHandle, PlinkoBoardProps>(
           text.anchor.set(0.5);
           text.position.set(cx, anchorY);
           slotLayer.addChild(text);
+          anchorTextsRef.current.push({ text, slotIndex: s });
         }
       }
 
@@ -300,7 +303,16 @@ const PlinkoBoard = forwardRef<PlinkoBoardHandle, PlinkoBoardProps>(
         lastTickTime = performance.now();
 
         const onResize = () => {
+          // Clear in-flight balls — buildBoard destroys & recreates layers,
+          // so existing ball Graphics become orphaned from the display tree.
+          for (const [, g] of ballGraphicsRef.current) {
+            g.destroy();
+          }
+          ballGraphicsRef.current.clear();
+          ballsRef.current = [];
+          pegGlowsRef.current = [];
           buildBoard(app, rowsRef.current);
+          onBallCountChangeRef.current?.(0);
         };
         app.renderer.on('resize', onResize);
 
@@ -467,11 +479,17 @@ const PlinkoBoard = forwardRef<PlinkoBoardHandle, PlinkoBoardProps>(
 
     useEffect(() => {
       multipliersRef.current = multipliers;
-      if (!slotTextsRef.current || !multipliers) return;
+      if (!multipliers) return;
       const useCompact = rows >= 14;
+      // Update in-slot texts (non-dense mode)
       multipliers.forEach((m, idx) => {
         const text = slotTextsRef.current?.[idx];
         if (text) text.text = formatMultiplier(m, useCompact);
+      });
+      // Update anchor labels (dense mode)
+      anchorTextsRef.current?.forEach(({ text, slotIndex }) => {
+        const m = multipliers[slotIndex];
+        if (m != null) text.text = formatMultiplier(m, false);
       });
     }, [multipliers, rows]);
 

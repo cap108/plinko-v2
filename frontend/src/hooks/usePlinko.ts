@@ -322,11 +322,12 @@ export function usePlinko(options: UsePlinkoOptions): UsePlinkoReturn {
     if (entry) {
       const { result, globalIndex } = entry;
 
-      // Update balance only if this is the most recent bet to resolve
-      if (globalIndex > latestBalanceIndexRef.current) {
-        latestBalanceIndexRef.current = globalIndex;
-        setBalance(result.balance);
-      }
+      // Add this ball's net win to the optimistic balance.
+      // We already deducted the full batch cost upfront, so each ball's
+      // contribution is just its winAmount. This avoids the display
+      // bouncing when server running-balance goes down between balls.
+      setBalance(prev => prev + result.winAmount);
+      latestBalanceIndexRef.current = Math.max(latestBalanceIndexRef.current, globalIndex);
 
       setTotalWon(prev => prev + result.winAmount);
       roundNetRef.current += result.winAmount;
