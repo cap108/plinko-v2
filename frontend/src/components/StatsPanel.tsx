@@ -1,4 +1,4 @@
-import { useState, useEffect, useMemo, memo } from 'react';
+import { useState, useEffect, useMemo, useRef, memo } from 'react';
 import type { BetResult } from '@plinko-v2/shared';
 
 interface StatsPanelProps {
@@ -11,7 +11,7 @@ interface StatsPanelProps {
 }
 
 function formatBalance(dollars: number): string {
-  return '$' + Math.abs(dollars).toLocaleString('en-US', {
+  return Math.abs(dollars).toLocaleString('en-US', {
     minimumFractionDigits: 2,
     maximumFractionDigits: 2,
   });
@@ -33,7 +33,7 @@ function getMultiplierColor(mult: number): string {
 }
 
 function formatBalanceFull(dollars: number): string {
-  return '$' + dollars.toLocaleString('en-US', {
+  return dollars.toLocaleString('en-US', {
     minimumFractionDigits: 2,
     maximumFractionDigits: 2,
   });
@@ -59,9 +59,25 @@ export const StatsPanel = memo(function StatsPanel({
     return { netPL, bestMultiplier, winRate };
   }, [lastResults, totalWon, totalWagered]);
 
+  // Debounced SR summary — must be before any early returns (Rules of Hooks)
+  const [srSummary, setSrSummary] = useState('');
+  const debounceRef = useRef<ReturnType<typeof setTimeout>>(undefined);
+  useEffect(() => {
+    if (lastResults.length === 0) return;
+    clearTimeout(debounceRef.current);
+    debounceRef.current = setTimeout(() => {
+      const netPL = totalWon - totalWagered;
+      const sign = netPL >= 0 ? '+' : '-';
+      setSrSummary(
+        `Balance ${formatBalanceFull(balance)}. Net ${sign}${formatBalance(netPL)}. ${lastResults.length} results.`
+      );
+    }, 5000);
+    return () => clearTimeout(debounceRef.current);
+  }, [lastResults, balance, totalWon, totalWagered]);
+
   const balanceHeader = (
     <div className="mb-4">
-      <p className="text-text-secondary text-xs font-medium">Balance</p>
+      <p className="text-text-secondary text-xs font-medium">Balance (Fun)</p>
       <div className="flex items-baseline gap-2">
         <p className="text-text-primary font-mono text-xl font-bold">{formatBalanceFull(balance)}</p>
         {balance < 100 && (
@@ -90,6 +106,9 @@ export const StatsPanel = memo(function StatsPanel({
   return (
     <div className="h-full flex flex-col">
       {balanceHeader}
+
+      {/* SR-only live summary */}
+      <div aria-live="polite" className="sr-only">{srSummary}</div>
 
       {/* Summary Grid */}
       <div className="grid grid-cols-2 gap-2 mb-4">
@@ -122,7 +141,7 @@ export const StatsPanel = memo(function StatsPanel({
                 {r.multiplier}x
               </span>
               <span className={`font-mono text-xs ${r.winAmount > 0 ? 'text-accent-green' : 'text-text-secondary'}`}>
-                {r.winAmount > 0 ? `+${formatBalance(r.winAmount)}` : '$0.00'}
+                {r.winAmount > 0 ? `+${formatBalance(r.winAmount)}` : '0.00'}
               </span>
             </div>
           ))}

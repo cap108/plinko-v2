@@ -1,5 +1,6 @@
-import { Container, Sprite, Texture, Graphics, Application } from 'pixi.js';
+import { Container, Sprite, Texture, Application } from 'pixi.js';
 import { getWinTier } from '@/sound/landingSound';
+import { getSharedTextures } from '@/plinko/textureAtlas';
 
 interface Particle {
   sprite: Sprite;
@@ -37,12 +38,8 @@ export class ParticleSystem {
   constructor(app: Application, parentContainer: Container) {
     this.container = parentContainer;
 
-    // Create shared 8x8 circle texture
-    const g = new Graphics();
-    g.circle(4, 4, 4);
-    g.fill(0xffffff);
-    this.texture = app.renderer.generateTexture(g);
-    g.destroy();
+    // Use shared texture atlas (WeakMap<Application>)
+    this.texture = getSharedTextures(app).circle8;
 
     // Pre-allocate pool
     for (let i = 0; i < POOL_SIZE; i++) {
@@ -68,10 +65,9 @@ export class ParticleSystem {
 
   emitPegHit(x: number, y: number): void {
     if (!this.enabled) return;
-    const count = this.degradedCount > 0
-      ? this.degradedCount
-      : 3 + Math.floor(Math.random() * 3); // 3-5
-    this.emitBurst(x, y, count, PEG_HIT_COLORS, 0.05, 0.10, 200);
+    // Subtle single-particle flash instead of a burst — keeps visual feedback
+    // without overwhelming the board when many balls are bouncing
+    this.emitBurst(x, y, 1, PEG_HIT_COLORS, 0.02, 0.05, 150);
   }
 
   emitLanding(x: number, y: number, multiplier: number): void {
@@ -159,7 +155,7 @@ export class ParticleSystem {
       p.sprite.destroy();
     }
     this.pool.length = 0;
-    this.texture.destroy(true);
+    // texture owned by shared atlas — do not destroy here
   }
 
   private emitBurst(

@@ -2,6 +2,7 @@ import { useState, useCallback, useEffect, useRef, useMemo } from 'react';
 import type { RowCount, RiskLevel, BetResult, ConfigResponse } from '@plinko-v2/shared';
 import type { SpeedPreset } from '@/plinko/playback';
 import * as api from '@/api';
+import { ApiError, ApiErrorType } from '@/api';
 import { ensureAudioResumed, setBgmMuted } from '@/sound/audioContext';
 
 const STORAGE_MUSIC = 'plinko_music_muted';
@@ -43,6 +44,7 @@ const BALL_DROP_DELAY: Record<SpeedPreset, number> = {
 
 interface UsePlinkoOptions {
   onDropBall: (slotIndex: number) => number;
+  onBallResult?: (result: BetResult) => void;
 }
 
 type DropEntry = { result: BetResult; globalIndex: number };
@@ -53,6 +55,7 @@ interface UsePlinkoReturn {
   config: ConfigResponse | null;
   loading: boolean;
   error: string | null;
+  errorType: ApiErrorType | null;
   clearError: () => void;
 
   betAmount: number;
@@ -92,6 +95,7 @@ export function usePlinko(options: UsePlinkoOptions): UsePlinkoReturn {
   const [config, setConfig] = useState<ConfigResponse | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const [errorType, setErrorType] = useState<ApiErrorType | null>(null);
 
   const [betAmount, setBetAmountRaw] = useState(() => {
     const v = getStored(STORAGE_BET);
@@ -117,8 +121,9 @@ export function usePlinko(options: UsePlinkoOptions): UsePlinkoReturn {
 
   // Wrapped setters that persist to localStorage
   const setBetAmount = useCallback((v: number) => {
-    setBetAmountRaw(v);
-    setStored(STORAGE_BET, String(v));
+    const rounded = Math.round(v * 100) / 100; // snap to whole cents
+    setBetAmountRaw(rounded);
+    setStored(STORAGE_BET, String(rounded));
   }, []);
   const setNumBalls = useCallback((v: number) => {
     setNumBallsRaw(v);
@@ -168,7 +173,11 @@ export function usePlinko(options: UsePlinkoOptions): UsePlinkoReturn {
   }, []);
 
   const onDropBallRef = useRef(options.onDropBall);
-  useEffect(() => { onDropBallRef.current = options.onDropBall; });
+  const onBallResultRef = useRef(options.onBallResult);
+  useEffect(() => {
+    onDropBallRef.current = options.onDropBall;
+    onBallResultRef.current = options.onBallResult;
+  });
 
   // Phase 5: Replace pendingCountRef/completedCountRef/highestBalanceIdxRef
   const activeBallsRef = useRef(0);
@@ -187,7 +196,7 @@ export function usePlinko(options: UsePlinkoOptions): UsePlinkoReturn {
   // Phase 5: Safety timeout - last activity time
   const lastActivityTimeRef = useRef(0);
 
-  const clearError = useCallback(() => setError(null), []);
+  const clearError = useCallback(() => { setError(null); setErrorType(null); }, []);
 
   // ---- Initialization ----
   useEffect(() => {
@@ -213,7 +222,10 @@ export function usePlinko(options: UsePlinkoOptions): UsePlinkoReturn {
           return clamped;
         });
       } catch (e) {
-        if (!cancelled) setError(e instanceof Error ? e.message : 'Failed to initialize');
+        if (!cancelled) {
+          setError(e instanceof Error ? e.message : 'Failed to initialize');
+          setErrorType(e instanceof ApiError ? e.type : ApiErrorType.Network);
+        }
       } finally {
         if (!cancelled) setLoading(false);
       }
@@ -258,7 +270,7 @@ export function usePlinko(options: UsePlinkoOptions): UsePlinkoReturn {
     const currentGen = sessionGenRef.current;
 
     if (betAmount < config.minBet || betAmount > config.maxBet) {
-      setError(`Bet must be between $${config.minBet} and $${config.maxBet}`);
+      setError(`Bet must be between ${config.minBet} and ${config.maxBet}`);
       inflightCostRef.current = Math.max(0, inflightCostRef.current - totalCost);
       return;
     }
@@ -310,6 +322,7 @@ export function usePlinko(options: UsePlinkoOptions): UsePlinkoReturn {
       setBalance(prev => prev + totalCost);
       setTotalWagered(prev => prev - totalCost);
       setError(e instanceof Error ? e.message : 'Bet failed');
+      setErrorType(e instanceof ApiError ? e.type : ApiErrorType.Network);
       setBetPending(false);
     }
   }, [sessionId, config, betPending, betAmount, numBalls, balance, rows, riskLevel, speed]);
@@ -333,6 +346,7 @@ export function usePlinko(options: UsePlinkoOptions): UsePlinkoReturn {
       roundNetRef.current += result.winAmount;
       setLastResults(prev => [result, ...prev].slice(0, 100));
       dropIdToResultRef.current.delete(dropId);
+      onBallResultRef.current?.(result);
     }
 
     activeBallsRef.current -= 1;
@@ -381,6 +395,7 @@ export function usePlinko(options: UsePlinkoOptions): UsePlinkoReturn {
     } catch (e) {
       if (oldSessionId) api.storeSessionId(oldSessionId);
       setError(e instanceof Error ? e.message : 'Failed to create new game. Please try again.');
+      setErrorType(e instanceof ApiError ? e.type : ApiErrorType.Network);
     } finally {
       setLoading(false);
     }
@@ -392,6 +407,7 @@ export function usePlinko(options: UsePlinkoOptions): UsePlinkoReturn {
     config,
     loading,
     error,
+    errorType,
     clearError,
 
     betAmount,

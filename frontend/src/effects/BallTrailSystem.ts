@@ -1,9 +1,11 @@
-import { Container, Sprite, Texture, Graphics, Application } from 'pixi.js';
+import { Container, Sprite, Texture, Application } from 'pixi.js';
+import { getSharedTextures } from '@/plinko/textureAtlas';
 
 const TRAIL_LENGTH = 6;
-const TRAIL_ALPHAS = [0.35, 0.25, 0.18, 0.12, 0.08, 0.04];
+const TRAIL_ALPHAS = [0.30, 0.22, 0.15, 0.10, 0.06, 0.03];
+const TRAIL_SCALES = [0.90, 0.78, 0.66, 0.54, 0.42, 0.30]; // taper from near-full to small
 const MAX_TRACKED_BALLS = 15;
-const MIN_DISTANCE_SQ = 16; // 4px minimum distance between trail points
+const MIN_DISTANCE_SQ = 4; // 2px minimum — tight spacing for smooth connected trail
 
 interface BallTrail {
   positions: Array<{ x: number; y: number }>;
@@ -19,12 +21,8 @@ export class BallTrailSystem {
   constructor(app: Application, parentContainer: Container) {
     this.container = parentContainer;
 
-    // Create shared circle texture (8x8)
-    const g = new Graphics();
-    g.circle(4, 4, 4);
-    g.fill(0xffffff);
-    this.texture = app.renderer.generateTexture(g);
-    g.destroy();
+    // Use shared texture atlas (WeakMap<Application>)
+    this.texture = getSharedTextures(app).circle8;
   }
 
   updateBall(ballId: number, x: number, y: number, radius: number): void {
@@ -58,7 +56,7 @@ export class BallTrailSystem {
     }
 
     // Update sprite positions and visibility (skip i=0 which is under the ball)
-    const scale = (radius * 0.7) / 4; // texture is 8x8, radius 4
+    const baseScale = radius / 4; // texture is 8x8 (radius 4), match ball size
     for (let i = 0; i < TRAIL_LENGTH; i++) {
       const sprite = trail.sprites[i];
       const posIdx = trail.positions.length - 2 - i; // -2 to skip current position
@@ -66,7 +64,7 @@ export class BallTrailSystem {
         const pos = trail.positions[posIdx];
         sprite.position.set(pos.x, pos.y);
         sprite.alpha = TRAIL_ALPHAS[i];
-        sprite.scale.set(scale);
+        sprite.scale.set(baseScale * TRAIL_SCALES[i]); // taper down for smooth trail
         sprite.visible = true;
       } else {
         sprite.visible = false;
@@ -93,7 +91,7 @@ export class BallTrailSystem {
 
   destroy(): void {
     this.clear();
-    this.texture.destroy(true);
+    // texture owned by shared atlas — do not destroy here
   }
 
   /** Re-parent all sprites to a new container */

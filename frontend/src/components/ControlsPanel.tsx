@@ -1,7 +1,61 @@
-import { useState, useId, memo } from 'react';
+import { useState, useId, useRef, useEffect, memo } from 'react';
 import type { RowCount, RiskLevel, ConfigResponse } from '@plinko-v2/shared';
 import type { SpeedPreset } from '@/plinko/playback';
 import type { AutoBetConfig } from '@/types/autoBet';
+
+/** Formats a bet amount: whole dollars as "5", fractional as "5.20" */
+function formatBet(v: number): string {
+  return v % 1 === 0 ? String(v) : v.toFixed(2);
+}
+
+/** Controlled-on-blur bet input — lets users type freely, commits on blur/Enter */
+function BetInput({ id, value, min, max, onChange, className }: {
+  id: string;
+  value: number;
+  min: number;
+  max: number;
+  onChange: (v: number) => void;
+  className: string;
+}) {
+  const [local, setLocal] = useState(formatBet(value));
+  const focused = useRef(false);
+
+  // Sync from parent when not focused (e.g. quick buttons, external changes)
+  useEffect(() => {
+    if (!focused.current) setLocal(formatBet(value));
+  }, [value]);
+
+  const commit = () => {
+    const v = parseFloat(local);
+    if (!isNaN(v)) {
+      const clamped = Math.max(min, Math.min(max, v));
+      onChange(clamped);
+      setLocal(formatBet(clamped));
+    } else {
+      setLocal(formatBet(value));
+    }
+  };
+
+  return (
+    <input
+      id={id}
+      type="number"
+      step={0.10}
+      min={min}
+      max={max}
+      value={local}
+      onFocus={(e) => { focused.current = true; e.target.select(); }}
+      onBlur={() => { focused.current = false; commit(); }}
+      onKeyDown={(e) => { if (e.key === 'Enter') { e.currentTarget.blur(); } }}
+      onChange={(e) => {
+        const v = e.target.value;
+        // Allow typing freely but cap at 2 decimal places
+        if (/^\d*\.?\d{0,2}$/.test(v) || v === '') setLocal(v);
+      }}
+      className={className}
+    />
+  );
+}
 
 const ROW_OPTIONS: RowCount[] = [8, 10, 12, 14, 16];
 const RISK_OPTIONS: RiskLevel[] = ['low', 'medium', 'high'];
@@ -13,7 +67,7 @@ const RISK_LABELS: Record<RiskLevel, { short: string; full: string }> = {
 const SPEED_OPTIONS: SpeedPreset[] = ['slow', 'regular', 'turbo'];
 
 function formatBalance(dollars: number): string {
-  return '$' + dollars.toLocaleString('en-US', {
+  return dollars.toLocaleString('en-US', {
     minimumFractionDigits: 2,
     maximumFractionDigits: 2,
   });
@@ -74,7 +128,7 @@ export const ControlsPanel = memo(function ControlsPanel({
       <div className="flex bg-surface-alt rounded overflow-hidden">
         <button
           onClick={() => !autoBetActive && setMode('manual')}
-          className={`flex-1 py-1.5 lg:py-2 text-sm font-medium transition-colors min-h-[36px] lg:min-h-[40px]
+          className={`flex-1 py-1.5 lg:py-2 text-sm font-medium transition-colors min-h-[44px]
             ${mode === 'manual'
               ? 'bg-accent-cyan text-surface'
               : 'text-text-secondary hover:text-text-primary'
@@ -84,7 +138,7 @@ export const ControlsPanel = memo(function ControlsPanel({
         </button>
         <button
           onClick={() => !autoBetActive && setMode('auto')}
-          className={`flex-1 py-1.5 lg:py-2 text-sm font-medium transition-colors min-h-[36px] lg:min-h-[40px]
+          className={`flex-1 py-1.5 lg:py-2 text-sm font-medium transition-colors min-h-[44px]
             ${mode === 'auto'
               ? 'bg-accent-cyan text-surface'
               : 'text-text-secondary hover:text-text-primary'
@@ -100,24 +154,18 @@ export const ControlsPanel = memo(function ControlsPanel({
           <label htmlFor={`${formId}-bet-amount-m`} className="block text-text-secondary text-xs mb-1">
             Bet Amount
           </label>
-          <input
+          <BetInput
             id={`${formId}-bet-amount-m`}
-            type="number"
-            step={0.10}
+            value={betAmount}
             min={config.minBet}
             max={config.maxBet}
-            value={betAmount}
-            onFocus={(e) => e.target.select()}
-            onChange={(e) => {
-              const v = parseFloat(e.target.value);
-              if (!isNaN(v)) setBetAmount(Math.max(config.minBet, Math.min(config.maxBet, v)));
-            }}
+            onChange={setBetAmount}
             className="w-full px-2 py-1.5 bg-surface-alt border border-border-subtle rounded text-text-primary font-mono text-sm
               focus-visible:ring-2 focus-visible:ring-accent-cyan focus-visible:ring-offset-2 focus-visible:ring-offset-surface"
           />
         </div>
         <div className="flex-1 text-right">
-          <p className="text-text-secondary text-xs mb-1">Balance</p>
+          <p className="text-text-secondary text-xs mb-1">Balance (Fun)</p>
           <p className="text-text-primary font-mono text-sm font-bold py-1.5">{formatBalance(balance)}</p>
         </div>
       </div>
@@ -138,18 +186,12 @@ export const ControlsPanel = memo(function ControlsPanel({
         <label htmlFor={`${formId}-bet-amount`} className="block text-text-secondary text-xs mb-1">
           Bet Amount
         </label>
-        <input
+        <BetInput
           id={`${formId}-bet-amount`}
-          type="number"
-          step={0.10}
+          value={betAmount}
           min={config.minBet}
           max={config.maxBet}
-          value={betAmount}
-          onFocus={(e) => e.target.select()}
-          onChange={(e) => {
-            const v = parseFloat(e.target.value);
-            if (!isNaN(v)) setBetAmount(Math.max(config.minBet, Math.min(config.maxBet, v)));
-          }}
+          onChange={setBetAmount}
           className="w-full px-3 py-2 bg-surface-alt border border-border-subtle rounded text-text-primary font-mono
             focus-visible:ring-2 focus-visible:ring-accent-cyan focus-visible:ring-offset-2 focus-visible:ring-offset-surface"
         />
@@ -293,7 +335,7 @@ export const ControlsPanel = memo(function ControlsPanel({
           text-text-primary text-sm flex items-center justify-between min-h-[44px] lg:min-h-[56px]">
           <span>{error}</span>
           <button onClick={clearError} className="ml-2 text-text-secondary hover:text-text-primary
-            min-w-[36px] min-h-[36px] lg:min-w-[44px] lg:min-h-[44px] flex items-center justify-center shrink-0"
+            min-w-[44px] min-h-[44px] flex items-center justify-center shrink-0"
             aria-label="Dismiss error">
             {'\u2715'}
           </button>
@@ -311,7 +353,7 @@ function LabelWithHelp({ label, help, align }: {
   align?: 'right';
 }) {
   const [open, setOpen] = useState(false);
-  // On mobile: right-aligned labels anchor tooltip to right edge; on desktop always left-anchor (sidebar)
+  const tooltipId = useId();
   const tipPos = align === 'right'
     ? 'right-0 lg:right-auto lg:left-0'
     : 'left-0';
@@ -320,6 +362,8 @@ function LabelWithHelp({ label, help, align }: {
   return (
     <div className={`flex items-center gap-1 mb-1 ${align === 'right' ? 'justify-end lg:justify-start' : ''}`}>
       <span className="text-text-secondary text-xs">{label}</span>
+      {/* sr-only tooltip text for aria-describedby */}
+      <span id={tooltipId} role="tooltip" className="sr-only">{help}</span>
       <div className="relative">
         <button
           type="button"
@@ -328,10 +372,11 @@ function LabelWithHelp({ label, help, align }: {
             text-text-secondary hover:text-text-primary text-[10px] leading-none
             bg-surface-alt hover:bg-surface-alt/80 transition-colors"
           aria-label={`${label} info`}
+          aria-describedby={tooltipId}
         >
           ?
           {/* Desktop hover tooltip */}
-          <div className={`hidden group-hover:block ${tipStyle} ${tipPos} pointer-events-none`}>
+          <div className={`hidden group-hover:block ${tipStyle} ${tipPos} pointer-events-none`} aria-hidden="true">
             {help}
           </div>
         </button>
@@ -339,7 +384,7 @@ function LabelWithHelp({ label, help, align }: {
         {open && (
           <>
             <div className="fixed inset-0 z-40 lg:hidden" onClick={() => setOpen(false)} />
-            <div className={`lg:hidden ${tipStyle} ${tipPos}`}>
+            <div className={`lg:hidden ${tipStyle} ${tipPos}`} aria-hidden="true">
               {help}
             </div>
           </>
@@ -392,7 +437,7 @@ function ToggleButton({ label, mobileLabel, active, onClick }: {
       aria-label={label}
       onClick={onClick}
       className={`px-2 py-1 lg:px-3 lg:py-1.5 rounded text-xs lg:text-sm font-medium capitalize transition-colors
-        min-w-[36px] min-h-[36px] lg:min-w-[44px] lg:min-h-[44px]
+        min-w-[44px] min-h-[44px]
         flex items-center justify-center
         focus-visible:ring-2 focus-visible:ring-accent-cyan focus-visible:ring-offset-2 focus-visible:ring-offset-surface
         ${active
@@ -419,7 +464,7 @@ function QuickButton({ label, disabled, onClick }: {
     <button
       onClick={onClick}
       disabled={disabled}
-      className={`min-w-[36px] min-h-[36px] lg:min-w-[44px] lg:min-h-[44px] px-2 flex items-center justify-center
+      className={`min-w-[44px] min-h-[44px] px-2 flex items-center justify-center
         rounded text-xs lg:text-sm font-medium transition-colors
         focus-visible:ring-2 focus-visible:ring-accent-cyan focus-visible:ring-offset-2 focus-visible:ring-offset-surface
         ${disabled

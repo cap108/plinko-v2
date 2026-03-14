@@ -1,6 +1,7 @@
 import { useRef, useCallback, useState, useEffect, lazy, Suspense, type JSX } from 'react';
 import { Routes, Route } from 'react-router-dom';
 import type { SpeedPreset } from '@/plinko/playback';
+import type { BetResult } from '@plinko-v2/shared';
 import PlinkoBoard, { type PlinkoBoardHandle } from '@/components/PlinkoBoard';
 import { usePlinko } from '@/hooks/usePlinko';
 import { useAutoBet } from '@/hooks/useAutoBet';
@@ -11,6 +12,8 @@ import { SplashScreen } from '@/components/SplashScreen';
 import { Layout } from '@/components/Layout';
 import { ControlsPanel } from '@/components/ControlsPanel';
 import { StatsPanel } from '@/components/StatsPanel';
+import { NetworkErrorOverlay } from '@/components/NetworkErrorOverlay';
+import { ApiErrorType } from '@/api';
 import { ensureAudioResumed, startBackgroundMusic } from '@/sound/audioContext';
 
 const AdminApp = lazy(() => import('./admin/AdminApp'));
@@ -19,10 +22,54 @@ function isTransientError(msg: string): boolean {
   return !msg.includes('Insufficient') && !msg.includes('too fast') && !msg.includes('too many');
 }
 
+function checkWebGL(): boolean {
+  try {
+    const canvas = document.createElement('canvas');
+    const gl = canvas.getContext('webgl2') || canvas.getContext('webgl');
+    if (!gl) return false;
+    // Clean up GPU context
+    const ext = (gl as WebGLRenderingContext).getExtension('WEBGL_lose_context');
+    ext?.loseContext();
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+function WebGLError() {
+  return (
+    <div className="min-h-screen flex flex-col items-center justify-center bg-surface gap-4 px-6 text-center">
+      <p className="text-status-error text-lg font-bold">WebGL Not Available</p>
+      <p className="text-text-secondary text-sm max-w-md">
+        PlinkoVibe requires WebGL to render the game board. Please enable hardware acceleration in your browser settings or try a different browser.
+      </p>
+    </div>
+  );
+}
+
+const LOADING_MESSAGES = [
+  { delay: 0, text: 'Loading PlinkoVibe...' },
+  { delay: 3000, text: 'Connecting to server...' },
+  { delay: 8000, text: 'Server is waking up — hang tight...' },
+  { delay: 15000, text: 'Still waiting for the server — this can take up to 30s on cold start...' },
+];
+
 function LoadingScreen() {
+  const [msgIndex, setMsgIndex] = useState(0);
+
+  useEffect(() => {
+    const timers: ReturnType<typeof setTimeout>[] = [];
+    for (let i = 1; i < LOADING_MESSAGES.length; i++) {
+      timers.push(setTimeout(() => setMsgIndex(i), LOADING_MESSAGES[i].delay));
+    }
+    return () => timers.forEach(clearTimeout);
+  }, []);
+
   return (
     <div className="min-h-screen flex items-center justify-center bg-surface">
-      <p className="text-accent-cyan text-xl font-heading animate-pulse">Loading PlinkoVibe...</p>
+      <p className="text-accent-cyan text-xl font-heading animate-pulse" role="status">
+        {LOADING_MESSAGES[msgIndex].text}
+      </p>
     </div>
   );
 }
@@ -114,17 +161,33 @@ function MobileSpeedOverlay({ speed, setSpeed, children }: {
   );
 }
 
+const webglAvailable = checkWebGL();
+
 export default function App() {
   const boardRef = useRef<PlinkoBoardHandle>(null);
   const [ballCount, setBallCount] = useState(0);
   const [showSplash, setShowSplash] = useState(true);
   const reducedMotion = useReducedMotion();
 
+  if (!webglAvailable) return <WebGLError />;
+
   const dropBall = useCallback((slotIndex: number): number => {
     return boardRef.current?.dropBall(slotIndex) ?? -1;
   }, []);
 
-  const plinko = usePlinko({ onDropBall: dropBall });
+  // Throttled ball result SR announcement (max 1 per second)
+  const lastBallAnnouncementRef = useRef(0);
+  const onBallResult = useCallback((result: BetResult) => {
+    const now = Date.now();
+    if (now - lastBallAnnouncementRef.current < 1000) return;
+    lastBallAnnouncementRef.current = now;
+    const winText = result.winAmount > 0
+      ? `Won ${result.winAmount.toFixed(2)}`
+      : 'No win';
+    setSrAnnouncement(`${result.multiplier}x. ${winText}.`);
+  }, []);
+
+  const plinko = usePlinko({ onDropBall: dropBall, onBallResult });
   const autoBet = useAutoBet({
     placeBet: plinko.placeBet,
     playing: plinko.playing,
@@ -196,13 +259,13 @@ export default function App() {
     } />
     <Route path="*" element={<LoadingScreen />} />
   </Routes>;
-  if (!plinko.config && plinko.error) return <Routes>
+  if (!plinko.config) return <Routes>
     <Route path="/admin/*" element={
       <Suspense fallback={<div className="min-h-screen bg-surface flex items-center justify-center text-text-secondary">Loading admin...</div>}>
         <AdminApp />
       </Suspense>
     } />
-    <Route path="*" element={<ErrorScreen error={plinko.error} />} />
+    <Route path="*" element={<ErrorScreen error={plinko.error ?? 'Unable to connect to server'} />} />
   </Routes>;
 
   return (
@@ -297,6 +360,16 @@ export default function App() {
               ensureAudioResumed();
               if (!plinko.musicMuted) startBackgroundMusic();
             }} />
+          )}
+          {plinko.errorType && (plinko.errorType === ApiErrorType.Network || plinko.errorType === ApiErrorType.Timeout || plinko.errorType === ApiErrorType.Server) && plinko.error && (
+            <NetworkErrorOverlay
+              errorType={plinko.errorType}
+              message={plinko.error}
+              onRetry={() => {
+                plinko.clearError();
+                window.location.reload();
+              }}
+            />
           )}
           <div aria-live="assertive" className="sr-only">{srAnnouncement}</div>
         </>

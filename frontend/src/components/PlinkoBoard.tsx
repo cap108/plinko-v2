@@ -3,6 +3,7 @@ import {
   Application,
   Container,
   Graphics,
+  Sprite,
   Text,
   TextStyle,
 } from 'pixi.js';
@@ -27,6 +28,7 @@ import {
   type SpeedPreset,
 } from '@/plinko/playback';
 import { EffectCoordinator } from '@/effects/EffectCoordinator';
+import { getSharedTextures, destroySharedTextures } from '@/plinko/textureAtlas';
 
 const SLOT_COLORS = {
   jackpot: 0xffd700, // gold — edge slots (highest multiplier)
@@ -45,14 +47,16 @@ function getSlotColor(slotIndex: number, totalSlots: number): number {
 }
 
 interface PegGlow {
-  globalIndex: number;
+  poolIndex: number; // index into glowPool
+  globalIndex: number; // peg index
   startTime: number;
 }
 
 const PEG_GLOW_DURATION = 300; // ms
 const PEG_BASE_COLOR = 0xc0c0d0;
-const PEG_GLOW_COLOR = 0x00e5ff;
-const PEG_GLOW_SCALE = 2.0;
+
+const BALL_POOL_SIZE = 25;
+const GLOW_POOL_SIZE = 30;
 
 export interface PlinkoBoardProps {
   rows: RowCount;
@@ -71,7 +75,6 @@ export interface PlinkoBoardHandle {
 
 function formatMultiplier(m: number, compact = false): string {
   if (compact) {
-    // Compact format for high row counts (14+): drop "x" suffix, tighter numbers
     if (m >= 1000) return `${(m / 1000).toFixed(0)}K`;
     if (m >= 100) return `${Math.round(m)}`;
     if (m >= 10) return `${m.toFixed(0)}`;
@@ -91,16 +94,24 @@ const PlinkoBoard = forwardRef<PlinkoBoardHandle, PlinkoBoardProps>(
 
     const ballsRef = useRef<BallPlayback[]>([]);
     const pegGlowsRef = useRef<PegGlow[]>([]);
-    const dirtyPegsRef = useRef<Set<number>>(new Set());
     const pegLayerRef = useRef<Container | null>(null);
     const ballLayerRef = useRef<Container | null>(null);
     const slotLayerRef = useRef<Container | null>(null);
     const pegGraphicsRef = useRef<Graphics[]>([]);
-    const ballGraphicsRef = useRef<Map<number, Graphics>>(new Map());
     const slotTextsRef = useRef<Text[]>([]);
     const anchorTextsRef = useRef<{ text: Text; slotIndex: number }[]>([]);
     const coordinatorRef = useRef<EffectCoordinator | null>(null);
     const effectLayerRef = useRef<Container | null>(null);
+    const glowLayerRef = useRef<Container | null>(null);
+
+    // Ball sprite pool
+    const ballPoolRef = useRef<Sprite[]>([]);
+    const ballPoolUsedRef = useRef<Map<number, Sprite>>(new Map()); // ballId → sprite
+
+    // Glow sprite pool
+    const glowPoolRef = useRef<Sprite[]>([]);
+    const glowPoolFreeRef = useRef<number[]>([]); // indices of free glow sprites
+
     const rowsRef = useRef(rows);
     const speedRef = useRef(speed);
     const multipliersRef = useRef(multipliers);
@@ -120,28 +131,44 @@ const PlinkoBoard = forwardRef<PlinkoBoardHandle, PlinkoBoardProps>(
       // Clear coordinator sprites from old containers before destruction
       coordinatorRef.current?.clearAll();
 
+      // Detach pooled ball sprites before destroying layers
+      for (const sprite of ballPoolRef.current) {
+        if (sprite.parent) sprite.parent.removeChild(sprite);
+        sprite.visible = false;
+      }
+      ballPoolUsedRef.current.clear();
+
+      // Detach pooled glow sprites
+      for (const sprite of glowPoolRef.current) {
+        if (sprite.parent) sprite.parent.removeChild(sprite);
+        sprite.visible = false;
+      }
+      glowPoolFreeRef.current = Array.from({ length: glowPoolRef.current.length }, (_, i) => i);
+
       // Destroy old containers — peg/slot own their children;
-      // ball/effect children were detached by clearAll() above
-      for (const ref of [pegLayerRef, slotLayerRef]) {
-        if (ref.current) {
-          app.stage.removeChild(ref.current);
-          ref.current.destroy({ children: true });
+      // ball/effect children were detached above
+      for (const lRef of [pegLayerRef, slotLayerRef]) {
+        if (lRef.current) {
+          app.stage.removeChild(lRef.current);
+          lRef.current.destroy({ children: true });
         }
       }
-      for (const ref of [ballLayerRef, effectLayerRef]) {
-        if (ref.current) {
-          ref.current.removeChildren();
-          app.stage.removeChild(ref.current);
-          ref.current.destroy();
+      for (const lRef of [ballLayerRef, effectLayerRef, glowLayerRef]) {
+        if (lRef.current) {
+          lRef.current.removeChildren();
+          app.stage.removeChild(lRef.current);
+          lRef.current.destroy();
         }
       }
 
       const pegLayer = new Container();
+      const glowLayer = new Container();
       const ballLayer = new Container();
       const slotLayer = new Container();
       const effectLayer = new Container();
 
       pegLayerRef.current = pegLayer;
+      glowLayerRef.current = glowLayer;
       ballLayerRef.current = ballLayer;
       slotLayerRef.current = slotLayer;
       effectLayerRef.current = effectLayer;
@@ -152,11 +179,10 @@ const PlinkoBoard = forwardRef<PlinkoBoardHandle, PlinkoBoardProps>(
       const scaleY = app.screen.height / boardH;
       const scale = Math.min(scaleX, scaleY);
       const offsetX = (app.screen.width - BOARD_WIDTH * scale) / 2;
-      // Top-align on narrow screens (mobile), center on wide screens (desktop)
       const isMobile = app.screen.width < 768;
       const offsetY = isMobile ? 0 : (app.screen.height - boardH * scale) / 2;
 
-      for (const layer of [pegLayer, ballLayer, slotLayer, effectLayer]) {
+      for (const layer of [pegLayer, glowLayer, ballLayer, slotLayer, effectLayer]) {
         layer.scale.set(scale);
         layer.position.set(offsetX, offsetY);
       }
@@ -172,17 +198,18 @@ const PlinkoBoard = forwardRef<PlinkoBoardHandle, PlinkoBoardProps>(
         return g;
       });
 
+      // Cache peg layer as static texture (false = static snapshot, no live updates)
+      pegLayer.cacheAsTexture(false);
+
       // ---- Slot labels ----
       const totalSlots = rowCount + 1;
       const slotYPos = getSlotY(rowCount);
-      const denseSlots = rowCount >= 12; // hide in-slot text, show anchor labels instead
+      const denseSlots = rowCount >= 12;
       slotTextsRef.current = [];
       anchorTextsRef.current = [];
 
-      // Determine which slots get anchor labels (edges + center)
       const centerSlot = Math.floor(totalSlots / 2);
       const anchorSlots = new Set([0, totalSlots - 1, centerSlot]);
-      // For even slot counts, include both center-adjacent slots
       if (totalSlots % 2 === 0) anchorSlots.add(centerSlot - 1);
 
       for (let s = 0; s < totalSlots; s++) {
@@ -190,7 +217,6 @@ const PlinkoBoard = forwardRef<PlinkoBoardHandle, PlinkoBoardProps>(
         const cx = (bounds.left + bounds.right) / 2;
         const color = getSlotColor(s, totalSlots);
 
-        // Slot background
         const bg = new Graphics();
         const slotW = bounds.right - bounds.left;
         const slotHalfH = SLOT_ROW_HEIGHT / 2;
@@ -198,7 +224,6 @@ const PlinkoBoard = forwardRef<PlinkoBoardHandle, PlinkoBoardProps>(
         bg.fill({ color, alpha: 0.25 });
         slotLayer.addChild(bg);
 
-        // Tap (mobile) / hover (desktop) to reveal multiplier (dense mode only)
         if (denseSlots) {
           bg.eventMode = 'static';
           bg.cursor = 'pointer';
@@ -210,13 +235,12 @@ const PlinkoBoard = forwardRef<PlinkoBoardHandle, PlinkoBoardProps>(
             }
           };
           bg.on('pointertap', showLabel);
-          bg.on('mouseover', showLabel); // mouse only — avoids double-fire on touch
+          bg.on('mouseover', showLabel);
         }
 
         const multipliersArr = multipliersRef.current;
 
         if (!denseSlots) {
-          // Normal mode: show multiplier inside each slot
           const useCompact = rows >= 14;
           const label = multipliersArr?.[s] != null
             ? formatMultiplier(multipliersArr[s], useCompact)
@@ -234,7 +258,6 @@ const PlinkoBoard = forwardRef<PlinkoBoardHandle, PlinkoBoardProps>(
           slotTextsRef.current.push(text);
         }
 
-        // Dense mode: anchor labels below edge and center slots
         if (denseSlots && anchorSlots.has(s)) {
           const label = multipliersArr?.[s] != null
             ? formatMultiplier(multipliersArr[s], false)
@@ -254,11 +277,22 @@ const PlinkoBoard = forwardRef<PlinkoBoardHandle, PlinkoBoardProps>(
         }
       }
 
-      // Add layers in order: pegs (back), balls (middle), slots, effects (front)
+      // Add layers: pegs (back), glow, balls, slots, effects (front)
       app.stage.addChild(pegLayer);
+      app.stage.addChild(glowLayer);
       app.stage.addChild(ballLayer);
       app.stage.addChild(slotLayer);
       app.stage.addChild(effectLayer);
+
+      // Re-parent pooled ball sprites into new ballLayer
+      for (const sprite of ballPoolRef.current) {
+        ballLayer.addChild(sprite);
+      }
+
+      // Re-parent pooled glow sprites into new glowLayer
+      for (const sprite of glowPoolRef.current) {
+        glowLayer.addChild(sprite);
+      }
 
       // Notify coordinator to clear stale state and re-parent
       coordinatorRef.current?.reconfigure(scale, offsetX, offsetY);
@@ -290,7 +324,34 @@ const PlinkoBoard = forwardRef<PlinkoBoardHandle, PlinkoBoardProps>(
         container.appendChild(app.canvas);
         appRef.current = app;
 
-        // Build initial board
+        // Initialize shared textures
+        const { circle8 } = getSharedTextures(app);
+
+        // Initialize ball sprite pool
+        const ballPool: Sprite[] = [];
+        for (let i = 0; i < BALL_POOL_SIZE; i++) {
+          const sprite = new Sprite(circle8);
+          sprite.anchor.set(0.5);
+          sprite.tint = 0x00e5ff;
+          sprite.visible = false;
+          ballPool.push(sprite);
+        }
+        ballPoolRef.current = ballPool;
+
+        // Initialize glow sprite pool
+        const glowPool: Sprite[] = [];
+        for (let i = 0; i < GLOW_POOL_SIZE; i++) {
+          const sprite = new Sprite(circle8);
+          sprite.anchor.set(0.5);
+          sprite.tint = 0x00e5ff;
+          sprite.blendMode = 'add';
+          sprite.visible = false;
+          glowPool.push(sprite);
+        }
+        glowPoolRef.current = glowPool;
+        glowPoolFreeRef.current = Array.from({ length: GLOW_POOL_SIZE }, (_, i) => i);
+
+        // Build initial board (will re-parent pool sprites)
         buildBoard(app, rowsRef.current);
 
         const coordinator = new EffectCoordinator({
@@ -303,14 +364,18 @@ const PlinkoBoard = forwardRef<PlinkoBoardHandle, PlinkoBoardProps>(
         lastTickTime = performance.now();
 
         const onResize = () => {
-          // Clear in-flight balls — buildBoard destroys & recreates layers,
-          // so existing ball Graphics become orphaned from the display tree.
-          for (const [, g] of ballGraphicsRef.current) {
-            g.destroy();
+          // Return all ball sprites to pool
+          for (const [, sprite] of ballPoolUsedRef.current) {
+            sprite.visible = false;
           }
-          ballGraphicsRef.current.clear();
+          ballPoolUsedRef.current.clear();
           ballsRef.current = [];
           pegGlowsRef.current = [];
+          // Return all glow sprites to pool
+          for (const sprite of glowPoolRef.current) {
+            sprite.visible = false;
+          }
+          glowPoolFreeRef.current = Array.from({ length: glowPoolRef.current.length }, (_, i) => i);
           buildBoard(app, rowsRef.current);
           onBallCountChangeRef.current?.(0);
         };
@@ -319,12 +384,10 @@ const PlinkoBoard = forwardRef<PlinkoBoardHandle, PlinkoBoardProps>(
         const tick = () => {
           if (destroyed) return;
           const now = performance.now();
-          const dt = Math.min(now - lastTickTime, 33); // cap at ~30fps worth
+          const dt = Math.min(now - lastTickTime, 33);
           lastTickTime = now;
 
           const balls = ballsRef.current;
-          const ballGfx = ballGraphicsRef.current;
-          const ballLayer = ballLayerRef.current;
           const pegs = pegGraphicsRef.current;
           const glows = pegGlowsRef.current;
           const coord = coordinatorRef.current;
@@ -337,6 +400,7 @@ const PlinkoBoard = forwardRef<PlinkoBoardHandle, PlinkoBoardProps>(
           }
 
           const ballRadius = getBallRadiusForRows(rowsRef.current);
+          const spriteScale = ballRadius / 4; // texture is 8x8, radius 4
 
           let countChanged = false;
           for (let i = balls.length - 1; i >= 0; i--) {
@@ -345,32 +409,46 @@ const PlinkoBoard = forwardRef<PlinkoBoardHandle, PlinkoBoardProps>(
 
             if (!update) {
               coord?.handleEvent({ type: 'ballRemoved', ballId: ball.id });
-              const g = ballGfx.get(ball.id);
-              if (g && ballLayer) {
-                ballLayer.removeChild(g);
-                g.destroy();
-                ballGfx.delete(ball.id);
+              // Return sprite to pool
+              const sprite = ballPoolUsedRef.current.get(ball.id);
+              if (sprite) {
+                sprite.visible = false;
+                ballPoolUsedRef.current.delete(ball.id);
               }
               balls.splice(i, 1);
               countChanged = true;
               continue;
             }
 
-            let g = ballGfx.get(ball.id);
-            if (!g && ballLayer) {
-              g = new Graphics();
-              g.circle(0, 0, ballRadius);
-              g.fill(0x00e5ff);
-              ballLayer.addChild(g);
-              ballGfx.set(ball.id, g);
+            let sprite = ballPoolUsedRef.current.get(ball.id);
+            if (!sprite) {
+              // Acquire from pool — find first invisible sprite
+              sprite = ballPool.find(s => !s.visible);
+              if (sprite) {
+                sprite.visible = true;
+                sprite.scale.set(spriteScale);
+                ballPoolUsedRef.current.set(ball.id, sprite);
+              }
             }
-            if (g) {
-              g.position.set(update.pos.x, update.pos.y);
-              g.alpha = update.alpha;
+            if (sprite) {
+              sprite.position.set(update.pos.x, update.pos.y);
+              sprite.alpha = update.alpha;
             }
 
             for (const hit of update.newPegHits) {
-              glows.push({ globalIndex: hit.globalIndex, startTime: now });
+              // Acquire a glow sprite from pool
+              const freeIdx = glowPoolFreeRef.current.pop();
+              if (freeIdx !== undefined) {
+                glows.push({ poolIndex: freeIdx, globalIndex: hit.globalIndex, startTime: now });
+                const glowSprite = glowPool[freeIdx];
+                const peg = pegs[hit.globalIndex];
+                if (peg && glowSprite) {
+                  glowSprite.position.set(peg.position.x, peg.position.y);
+                  glowSprite.visible = true;
+                  glowSprite.alpha = 1;
+                  glowSprite.scale.set(PEG_RADIUS * 2.0 / 4);
+                }
+              }
               const peg = pegs[hit.globalIndex];
               if (peg) {
                 coord?.handleEvent({
@@ -408,33 +486,23 @@ const PlinkoBoard = forwardRef<PlinkoBoardHandle, PlinkoBoardProps>(
             onBallCountChangeRef.current?.(balls.length);
           }
 
-          const dirty = dirtyPegsRef.current;
-          for (const idx of dirty) {
-            const pg = pegs[idx];
-            if (pg) {
-              pg.clear();
-              pg.circle(0, 0, PEG_RADIUS);
-              pg.fill(PEG_BASE_COLOR);
-              pg.scale.set(1);
-            }
-          }
-          dirty.clear();
-
+          // Update glow sprites (alpha/scale — cheap, no throttle needed)
           for (let i = glows.length - 1; i >= 0; i--) {
             const glow = glows[i];
             const elapsed = now - glow.startTime;
             if (elapsed >= PEG_GLOW_DURATION) {
+              // Return glow sprite to pool
+              const glowSprite = glowPool[glow.poolIndex];
+              if (glowSprite) glowSprite.visible = false;
+              glowPoolFreeRef.current.push(glow.poolIndex);
               glows.splice(i, 1);
               continue;
             }
-            const alpha = 1 - elapsed / PEG_GLOW_DURATION;
-            const pg = pegs[glow.globalIndex];
-            if (pg) {
-              pg.clear();
-              pg.circle(0, 0, PEG_RADIUS);
-              pg.fill(lerpColor(PEG_BASE_COLOR, PEG_GLOW_COLOR, alpha));
-              pg.scale.set(1 + (PEG_GLOW_SCALE - 1) * alpha);
-              dirty.add(glow.globalIndex);
+            const t = 1 - elapsed / PEG_GLOW_DURATION;
+            const glowSprite = glowPool[glow.poolIndex];
+            if (glowSprite) {
+              glowSprite.alpha = t;
+              glowSprite.scale.set((PEG_RADIUS * (1 + t)) / 4);
             }
           }
 
@@ -449,8 +517,22 @@ const PlinkoBoard = forwardRef<PlinkoBoardHandle, PlinkoBoardProps>(
       return () => {
         destroyed = true;
         cancelAnimationFrame(rafId);
+        // Cleanup order: pool sprites → glow sprites → coordinator → shared textures → worker → app
+        for (const sprite of ballPoolRef.current) {
+          sprite.destroy();
+        }
+        ballPoolRef.current = [];
+        ballPoolUsedRef.current.clear();
+        for (const sprite of glowPoolRef.current) {
+          sprite.destroy();
+        }
+        glowPoolRef.current = [];
+        glowPoolFreeRef.current = [];
         coordinatorRef.current?.destroy();
         coordinatorRef.current = null;
+        if (appRef.current) {
+          destroySharedTextures(appRef.current);
+        }
         terminateWorker();
         if (appRef.current) {
           appRef.current.destroy({ removeView: true }, { children: true });
@@ -458,19 +540,24 @@ const PlinkoBoard = forwardRef<PlinkoBoardHandle, PlinkoBoardProps>(
         }
         ballsRef.current = [];
         pegGlowsRef.current = [];
-        ballGraphicsRef.current.clear();
       };
     }, []);
 
     useEffect(() => {
       const app = appRef.current;
       if (app) {
-        for (const [, g] of ballGraphicsRef.current) {
-          g.destroy();
+        // Return all ball sprites to pool
+        for (const [, sprite] of ballPoolUsedRef.current) {
+          sprite.visible = false;
         }
-        ballGraphicsRef.current.clear();
+        ballPoolUsedRef.current.clear();
         ballsRef.current = [];
         pegGlowsRef.current = [];
+        // Return all glow sprites to pool
+        for (const sprite of glowPoolRef.current) {
+          sprite.visible = false;
+        }
+        glowPoolFreeRef.current = Array.from({ length: glowPoolRef.current.length }, (_, i) => i);
 
         buildBoard(app, rows);
         onBallCountChangeRef.current?.(0);
@@ -481,12 +568,10 @@ const PlinkoBoard = forwardRef<PlinkoBoardHandle, PlinkoBoardProps>(
       multipliersRef.current = multipliers;
       if (!multipliers) return;
       const useCompact = rows >= 14;
-      // Update in-slot texts (non-dense mode)
       multipliers.forEach((m, idx) => {
         const text = slotTextsRef.current?.[idx];
         if (text) text.text = formatMultiplier(m, useCompact);
       });
-      // Update anchor labels (dense mode)
       anchorTextsRef.current?.forEach(({ text, slotIndex }) => {
         const m = multipliers[slotIndex];
         if (m != null) text.text = formatMultiplier(m, false);
@@ -522,8 +607,9 @@ const PlinkoBoard = forwardRef<PlinkoBoardHandle, PlinkoBoardProps>(
     return (
       <div
         ref={containerRef}
+        id="plinko-board"
         className="w-full h-full"
-        role="img"
+        role="region"
         aria-label="Plinko game board"
       />
     );
@@ -531,16 +617,3 @@ const PlinkoBoard = forwardRef<PlinkoBoardHandle, PlinkoBoardProps>(
 );
 
 export default PlinkoBoard;
-
-function lerpColor(a: number, b: number, t: number): number {
-  const ar = (a >> 16) & 0xff;
-  const ag = (a >> 8) & 0xff;
-  const ab = a & 0xff;
-  const br = (b >> 16) & 0xff;
-  const bg = (b >> 8) & 0xff;
-  const bb = b & 0xff;
-  const r = Math.round(ar + (br - ar) * t);
-  const g = Math.round(ag + (bg - ag) * t);
-  const bv = Math.round(ab + (bb - ab) * t);
-  return (r << 16) | (g << 8) | bv;
-}

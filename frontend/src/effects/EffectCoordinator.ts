@@ -3,9 +3,21 @@ import type { EffectEvent } from './effectEvents';
 import { ParticleSystem } from './ParticleSystem';
 import { ScreenShake } from './ScreenShake';
 import { BallTrailSystem } from './BallTrailSystem';
+import { BOARD_WIDTH } from '@/plinko/boardLayout';
 import { WinPopupSystem } from './WinPopupSystem';
 import { playPegSound, resetPegSoundThrottle } from '@/sound/pegSound';
 import { playLandingSound } from '@/sound/landingSound';
+
+function triggerHaptic(multiplier: number, reducedMotion: boolean): void {
+  if (reducedMotion || multiplier < 5 || !navigator.vibrate) return;
+  if (multiplier >= 50) {
+    navigator.vibrate([40, 30, 60, 30, 80]); // jackpot burst pattern
+  } else if (multiplier >= 10) {
+    navigator.vibrate([30, 20, 50]); // big win double tap
+  } else {
+    navigator.vibrate(40); // single short pulse
+  }
+}
 
 export interface EffectCoordinatorConfig {
   app: Application;
@@ -47,6 +59,7 @@ export class EffectCoordinator {
     }
     if (!this.popups && effectLayer) {
       this.popups = new WinPopupSystem(effectLayer);
+      this.popups.canvasWidth = BOARD_WIDTH;
     }
   }
 
@@ -76,6 +89,7 @@ export class EffectCoordinator {
         if (!this.muted) playLandingSound(event.multiplier);
         this.particles?.emitLanding(event.x, event.y, event.multiplier);
         this.shake.trigger(event.multiplier);
+        triggerHaptic(event.multiplier, this.reducedMotion);
         if (this.denseSlots || event.multiplier >= 2) {
           // Win popup suppression at >20 balls: suppress below 5x (unless dense mode)
           if (!this.denseSlots && this.activeBallCount > 20 && event.multiplier < 5) break;
@@ -146,6 +160,7 @@ export class EffectCoordinator {
     }
     if (effectLayer && this.popups) {
       this.popups.reparent(effectLayer);
+      this.popups.canvasWidth = BOARD_WIDTH;
     }
   }
 

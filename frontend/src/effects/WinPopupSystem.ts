@@ -26,6 +26,8 @@ export class WinPopupSystem {
   enabled: boolean = true;
   /** When true, show popups for ALL landings (used at 12+ rows where slot text is hidden) */
   alwaysShowPopup: boolean = false;
+  /** Canvas width — set by reconfigure so popups can be clamped to visible area */
+  canvasWidth: number = 0;
 
   constructor(parentContainer: Container) {
     this.container = parentContainer;
@@ -76,13 +78,24 @@ export class WinPopupSystem {
     popup.text.text = `${multiplier}x`;
     popup.text.style.fontSize = fontSize;
     popup.text.style.fill = color;
-    popup.text.position.set(x, y);
     popup.text.visible = true;
     popup.text.alpha = 1;
+
+    // Measure at scale 1 so we get actual text width for clamping
+    popup.text.scale.set(1);
+    let clampedX = x;
+    if (this.canvasWidth > 0) {
+      const halfW = popup.text.width / 2;
+      clampedX = Math.max(halfW + 4, Math.min(this.canvasWidth - halfW - 4, x));
+    }
+
+    // Now set scale to 0 for the pop-in animation
     popup.text.scale.set(0);
+    popup.text.position.set(clampedX, y);
+
     popup.active = true;
     popup.startTime = performance.now();
-    popup.startX = x;
+    popup.startX = clampedX;
     popup.startY = y;
 
     // Re-add to container if needed

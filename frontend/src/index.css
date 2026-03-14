@@ -17,10 +17,10 @@
 
   /* Text */
   --color-text-primary: #E6F3FF;
-  --color-text-secondary: #8B94B6;
+  --color-text-secondary: #9BA3C2;
 
   /* Borders & Status */
-  --color-border-subtle: rgba(139, 148, 182, 0.2);
+  --color-border-subtle: rgba(155, 163, 194, 0.2);
   --color-status-success: #00FF88;
   --color-status-error: #FF3366;
 
@@ -66,4 +66,13 @@ body {
 
 #root {
   min-height: 100vh;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+    scroll-behavior: auto !important;
+  }
 }

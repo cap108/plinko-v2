@@ -21,6 +21,13 @@ export function Layout({
 
   return (
     <div className="h-[100dvh] flex flex-col bg-surface overflow-hidden">
+      <a
+        href="#plinko-board"
+        className="sr-only focus:not-sr-only focus:absolute focus:z-50 focus:top-2 focus:left-2
+          focus:px-4 focus:py-2 focus:bg-accent-cyan focus:text-surface focus:rounded focus:font-bold focus:text-sm"
+      >
+        Skip to game board
+      </a>
       {header}
       {config?.maintenanceMode && (
         <div className="shrink-0 bg-orange-600/90 text-white text-center py-2 text-sm font-bold"
@@ -64,7 +71,7 @@ export function Layout({
               </span>
               <button
                 onClick={onStopAutoBet}
-                className="px-3 py-1 bg-accent-red text-white text-xs font-bold rounded min-h-[36px] min-w-[36px]"
+                className="px-3 py-1 bg-accent-red text-white text-xs font-bold rounded min-h-[44px] min-w-[44px]"
               >
                 STOP
               </button>
@@ -141,7 +148,7 @@ function TabButton({ id, active, onClick, label, controls }: {
       aria-controls={controls}
       tabIndex={active ? 0 : -1}
       onClick={onClick}
-      className={`flex-1 py-1.5 text-center text-xs lg:text-sm font-medium transition-colors min-h-[36px]
+      className={`flex-1 py-1.5 text-center text-xs lg:text-sm font-medium transition-colors min-h-[44px]
         ${active
           ? 'border-b-2 border-accent-cyan text-accent-cyan'
           : 'text-text-secondary hover:text-text-primary'
