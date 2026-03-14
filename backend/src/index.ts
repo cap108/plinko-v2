@@ -41,7 +41,12 @@ app.use(cors({
   methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
   allowedHeaders: ['Content-Type', 'Authorization'],
   credentials: false,
+  maxAge: 86400, // Cache preflight for 24h — reduces OPTIONS request overhead for cross-origin calls
 }) as unknown as express.RequestHandler);
+
+if (!isLocalEnv && !process.env.CORS_ORIGINS) {
+  logger.warn('CORS_ORIGINS not set in production — all cross-origin requests will be blocked');
+}
 
 // ---- Security headers ----
 app.use(helmet({
@@ -63,6 +68,16 @@ app.use(helmet({
 
 // ---- Request logging (before rate limiting so 429s are logged for security monitoring) ----
 app.use(pinoHttp({ logger }));
+
+// ---- Health endpoint (before rate limiter so Railway health checks always succeed) ----
+app.get('/api/health', (_req, res) => {
+  try {
+    db.prepare('SELECT 1').get();
+    res.json({ status: 'ok' });
+  } catch {
+    res.status(503).json({ status: 'error', message: 'Database unavailable' });
+  }
+});
 
 // ---- Rate limiting ----
 app.use(rateLimit({
@@ -101,6 +116,7 @@ const shutdown = () => {
   forceTimer.unref();
   server.close(() => {
     store.stopCleanupInterval();
+    try { db.pragma('wal_checkpoint(PASSIVE)'); } catch { /* best effort */ }
     db.close();
     process.exit(0);
   });

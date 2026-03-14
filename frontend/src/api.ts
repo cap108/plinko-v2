@@ -46,6 +46,11 @@ export function clearSession(): void {
   try { localStorage.removeItem(SESSION_KEY); } catch { /* ignore */ }
 }
 
+// ---- API base URL ----
+// Dev: empty string → relative paths go through Vite proxy.
+// Production: VITE_API_URL = Railway backend origin (e.g. 'https://plinko-api.up.railway.app').
+export const API_BASE = (import.meta.env.VITE_API_URL ?? '').replace(/\/+$/, '');
+
 // ---- API calls ----
 
 async function apiFetch<T>(path: string, init?: RequestInit): Promise<T> {
@@ -55,7 +60,7 @@ async function apiFetch<T>(path: string, init?: RequestInit): Promise<T> {
   try {
     let res: Response;
     try {
-      res = await fetch(path, { ...init, signal: controller.signal });
+      res = await fetch(`${API_BASE}${path}`, { ...init, signal: controller.signal });
     } catch (err) {
       if (err instanceof DOMException && err.name === 'AbortError') {
         throw new ApiError(ApiErrorType.Timeout, 'Request timed out');

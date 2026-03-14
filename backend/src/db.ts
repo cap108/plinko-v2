@@ -5,7 +5,17 @@ import { fileURLToPath } from 'url';
 import { logger } from './logger.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
-const DATA_DIR = path.resolve(__dirname, '../../data');
+
+// Validate DB_PATH before resolving — a relative path in production would silently use ephemeral storage
+if (process.env.DB_PATH && process.env.NODE_ENV === 'production' && !path.isAbsolute(process.env.DB_PATH)) {
+  // Can't use logger here (not yet initialized), so use console
+  console.error(`FATAL: DB_PATH must be an absolute path in production, got: ${process.env.DB_PATH}`);
+  process.exit(1);
+}
+
+const DATA_DIR = process.env.DB_PATH
+  ? path.resolve(process.env.DB_PATH)
+  : path.resolve(__dirname, '../../data');
 
 export function initDb(): Database.Database {
   fs.mkdirSync(DATA_DIR, { recursive: true });

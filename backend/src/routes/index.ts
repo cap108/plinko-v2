@@ -70,11 +70,6 @@ const betLimit = rateLimit({
 export function createRouter(store: Store): Router {
   const router = Router();
 
-  // GET /api/health (moved from index.ts)
-  router.get('/health', (_req: Request, res: Response) => {
-    res.json({ ok: true });
-  });
-
   // POST /api/session
   router.post('/session', sessionCreateLimit as unknown as import('express').RequestHandler, (req: Request, res: Response) => {
     if (getEffectiveConfig().maintenanceMode) {

@@ -6,6 +6,7 @@ import type {
   AdminStatsResponse,
   AdminRtpReportResponse,
 } from '@plinko-v2/shared';
+import { API_BASE } from '../api.js';
 
 const TOKEN_KEY = 'plinko_admin_token';
 
@@ -29,7 +30,7 @@ async function adminFetch<T>(path: string, init?: RequestInit): Promise<T> {
   const timeout = setTimeout(() => controller.abort(), 15_000);
 
   try {
-    const res = await fetch(path, {
+    const res = await fetch(`${API_BASE}${path}`, {
       ...init,
       signal: controller.signal,
       headers: {
