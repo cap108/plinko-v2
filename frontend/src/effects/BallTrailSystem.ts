@@ -22,7 +22,7 @@ export class BallTrailSystem {
     this.container = parentContainer;
 
     // Use shared texture atlas (WeakMap<Application>)
-    this.texture = getSharedTextures(app).circle8;
+    this.texture = getSharedTextures(app).circle;
   }
 
   updateBall(ballId: number, x: number, y: number, radius: number): void {
@@ -56,7 +56,7 @@ export class BallTrailSystem {
     }
 
     // Update sprite positions and visibility (skip i=0 which is under the ball)
-    const baseScale = radius / 4; // texture is 8x8 (radius 4), match ball size
+    const baseScale = radius / 16; // texture is 32x32 (radius 16), match ball size
     for (let i = 0; i < TRAIL_LENGTH; i++) {
       const sprite = trail.sprites[i];
       const posIdx = trail.positions.length - 2 - i; // -2 to skip current position

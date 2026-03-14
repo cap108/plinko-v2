@@ -39,7 +39,7 @@ export class ParticleSystem {
     this.container = parentContainer;
 
     // Use shared texture atlas (WeakMap<Application>)
-    this.texture = getSharedTextures(app).circle8;
+    this.texture = getSharedTextures(app).circle;
 
     // Pre-allocate pool
     for (let i = 0; i < POOL_SIZE; i++) {
@@ -137,7 +137,7 @@ export class ParticleSystem {
       p.life -= dt;
       const t = p.life / p.maxLife; // 1→0
       p.sprite.alpha = t;
-      p.sprite.scale.set(0.2 + 0.3 * t); // 0.5→0.2
+      p.sprite.scale.set(0.05 + 0.075 * t); // 0.125→0.05 (scaled for 32px texture)
       if (p.life <= 0) this.release(p);
     }
   }
@@ -181,7 +181,7 @@ export class ParticleSystem {
       p.sprite.y = y;
       p.sprite.tint = colors[Math.floor(Math.random() * colors.length)];
       p.sprite.alpha = 1;
-      p.sprite.scale.set(0.5);
+      p.sprite.scale.set(0.125);
     }
   }
 

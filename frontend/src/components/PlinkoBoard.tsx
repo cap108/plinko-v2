@@ -327,12 +327,12 @@ const PlinkoBoard = forwardRef<PlinkoBoardHandle, PlinkoBoardProps>(
         appRef.current = app;
 
         // Initialize shared textures
-        const { circle8 } = getSharedTextures(app);
+        const { circle } = getSharedTextures(app);
 
         // Initialize ball sprite pool
         const ballPool: Sprite[] = [];
         for (let i = 0; i < BALL_POOL_SIZE; i++) {
-          const sprite = new Sprite(circle8);
+          const sprite = new Sprite(circle);
           sprite.anchor.set(0.5);
           sprite.tint = 0x00e5ff;
           sprite.visible = false;
@@ -343,7 +343,7 @@ const PlinkoBoard = forwardRef<PlinkoBoardHandle, PlinkoBoardProps>(
         // Initialize glow sprite pool
         const glowPool: Sprite[] = [];
         for (let i = 0; i < GLOW_POOL_SIZE; i++) {
-          const sprite = new Sprite(circle8);
+          const sprite = new Sprite(circle);
           sprite.anchor.set(0.5);
           sprite.tint = 0x00e5ff;
           sprite.blendMode = 'add';
@@ -402,7 +402,7 @@ const PlinkoBoard = forwardRef<PlinkoBoardHandle, PlinkoBoardProps>(
           }
 
           const ballRadius = getBallRadiusForRows(rowsRef.current);
-          const spriteScale = ballRadius / 4; // texture is 8x8, radius 4
+          const spriteScale = ballRadius / 16; // texture is 32x32, radius 16
 
           let countChanged = false;
           for (let i = balls.length - 1; i >= 0; i--) {
@@ -448,7 +448,7 @@ const PlinkoBoard = forwardRef<PlinkoBoardHandle, PlinkoBoardProps>(
                   glowSprite.position.set(peg.position.x, peg.position.y);
                   glowSprite.visible = true;
                   glowSprite.alpha = 1;
-                  glowSprite.scale.set(PEG_RADIUS * 2.0 / 4);
+                  glowSprite.scale.set(PEG_RADIUS * 2.0 / 16);
                 }
               }
               const peg = pegs[hit.globalIndex];
@@ -506,7 +506,7 @@ const PlinkoBoard = forwardRef<PlinkoBoardHandle, PlinkoBoardProps>(
             const glowSprite = glowPool[glow.poolIndex];
             if (glowSprite) {
               glowSprite.alpha = t;
-              glowSprite.scale.set((PEG_RADIUS * (1 + t)) / 4);
+              glowSprite.scale.set((PEG_RADIUS * (1 + t)) / 16);
             }
           }
 
