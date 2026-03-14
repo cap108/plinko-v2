@@ -4,6 +4,7 @@ import type {
 } from '@plinko-v2/shared';
 
 const SESSION_KEY = 'plinko_v2_sessionId';
+const GUEST_KEY = 'plinko_v2_guestId';
 
 // ---- Typed errors ----
 
@@ -43,7 +44,20 @@ export function storeSessionId(id: string): void {
 }
 
 export function clearSession(): void {
+  // NOTE: GUEST_KEY is intentionally NOT cleared — Browser ID persists across session resets
   try { localStorage.removeItem(SESSION_KEY); } catch { /* ignore */ }
+}
+
+function getOrCreateGuestId(): string {
+  try {
+    const existing = localStorage.getItem(GUEST_KEY);
+    if (existing) return existing;
+    const id = crypto.randomUUID();
+    localStorage.setItem(GUEST_KEY, id);
+    return id;
+  } catch {
+    return crypto.randomUUID();
+  }
 }
 
 // ---- API base URL ----
@@ -119,7 +133,12 @@ async function apiFetchWithRetry<T>(
 // ---- Public API ----
 
 export async function createSession(): Promise<SessionResponse> {
-  return apiFetch<SessionResponse>('/api/session', { method: 'POST' });
+  const guestId = getOrCreateGuestId();
+  return apiFetch<SessionResponse>('/api/session', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ guestId }),
+  });
 }
 
 export async function getBalance(sessionId: string): Promise<number> {

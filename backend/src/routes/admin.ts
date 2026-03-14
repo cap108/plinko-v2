@@ -34,6 +34,8 @@ const AdminConfigUpdateSchema = z.object({
 const SessionListSchema = z.object({
   page: z.coerce.number().int().min(1).default(1),
   pageSize: z.coerce.number().int().min(1).max(100).default(20),
+  guestId: z.string().uuid().optional(),
+  ipHash: z.string().regex(/^[0-9a-f]{16}$/).optional(),
 });
 
 const SessionIdParamSchema = z.object({ id: z.string().uuid() });
@@ -149,8 +151,9 @@ export function createAdminRouter(store: Store, adminStore: AdminStore): Router 
       res.status(400).json({ error: parse.error.issues[0]?.message ?? 'Invalid request' });
       return;
     }
-    const { page, pageSize } = parse.data;
-    const result = adminStore.listSessions(page, pageSize);
+    const { page, pageSize, guestId, ipHash } = parse.data;
+    const filters = (guestId || ipHash) ? { guestId, ipHash } : undefined;
+    const result = adminStore.listSessions(page, pageSize, filters);
     res.json({ ...result, page, pageSize });
   });
 

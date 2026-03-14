@@ -16,9 +16,14 @@ function relativeTime(ts: number): string {
   return `${Math.floor(diff / 86_400_000)}d ago`;
 }
 
+function formatLocation(country?: string | null, region?: string | null): string {
+  if (!country) return '—';
+  return region ? `${country} / ${region}` : country;
+}
+
 interface SessionDetailProps {
   sessionId: string;
-  onBack: () => void;
+  onBack: (filter?: { guestId?: string; ipHash?: string }) => void;
 }
 
 export function SessionDetail({ sessionId, onBack }: SessionDetailProps) {
@@ -88,7 +93,7 @@ export function SessionDetail({ sessionId, onBack }: SessionDetailProps) {
 
       {/* Back button */}
       <button
-        onClick={onBack}
+        onClick={() => onBack()}
         className="flex items-center gap-1.5 text-text-secondary hover:text-amber-400 text-xs font-medium mb-4 transition-colors"
       >
         <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
@@ -140,8 +145,52 @@ export function SessionDetail({ sessionId, onBack }: SessionDetailProps) {
                 </dd>
               </div>
               <div>
+                <dt className="text-text-secondary font-medium mb-0.5">Location</dt>
+                <dd className="text-text-secondary">
+                  {formatLocation(data.session.geoCountry, data.session.geoRegion)}
+                </dd>
+              </div>
+              <div>
+                <dt className="text-text-secondary font-medium mb-0.5">Browser ID (advisory)</dt>
+                <dd className="flex items-center gap-1.5">
+                  {data.session.guestId ? (
+                    <>
+                      <button
+                        onClick={() => onBack({ guestId: data.session.guestId! })}
+                        className="text-amber-400 hover:text-amber-300 font-mono text-[10px] underline underline-offset-2 transition-colors"
+                        title={`Filter sessions by Browser ID: ${data.session.guestId}`}
+                      >
+                        {data.session.guestId}
+                      </button>
+                      <span className="text-text-secondary text-[10px]">
+                        ({data.guestSessionCount} {data.guestSessionCount === 1 ? 'session' : 'sessions'})
+                      </span>
+                    </>
+                  ) : (
+                    <span className="text-text-secondary">—</span>
+                  )}
+                </dd>
+              </div>
+              <div>
                 <dt className="text-text-secondary font-medium mb-0.5">IP Hash</dt>
-                <dd className="text-text-secondary font-mono text-[10px]">{data.session.createdByIpHash ?? 'N/A'}</dd>
+                <dd className="flex items-center gap-1.5">
+                  {data.session.createdByIpHash ? (
+                    <>
+                      <button
+                        onClick={() => onBack({ ipHash: data.session.createdByIpHash! })}
+                        className="text-amber-400 hover:text-amber-300 font-mono text-[10px] underline underline-offset-2 transition-colors"
+                        title={`Filter sessions by IP Hash: ${data.session.createdByIpHash}`}
+                      >
+                        {data.session.createdByIpHash}
+                      </button>
+                      <span className="text-text-secondary text-[10px]">
+                        ({data.ipSessionCount} {data.ipSessionCount === 1 ? 'session' : 'sessions'})
+                      </span>
+                    </>
+                  ) : (
+                    <span className="text-text-secondary">N/A</span>
+                  )}
+                </dd>
               </div>
             </dl>
 

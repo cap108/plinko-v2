@@ -1,6 +1,20 @@
 import type Database from 'better-sqlite3';
 import type { AdminSessionEntry, AdminSessionDetailResponse, AdminStatsResponse } from '@plinko-v2/shared';
+import { SESSION_TTL_MS } from '../store.js';
 import { logger } from '../logger.js';
+
+// Shared SELECT fragment for session list queries
+const SESSION_LIST_SELECT = `
+  SELECT s.session_id, s.balance_cents, s.created_at, s.last_active_at,
+         s.created_by_ip_hash, s.geo_country, s.geo_region, s.guest_id,
+         COUNT(h.id) as round_count
+  FROM sessions s
+  LEFT JOIN history h ON s.session_id = h.session_id`;
+
+const SESSION_LIST_TAIL = `
+  GROUP BY s.session_id
+  ORDER BY s.last_active_at DESC
+  LIMIT ? OFFSET ?`;
 
 export class AdminStore {
   private db: Database.Database;
@@ -11,8 +25,16 @@ export class AdminStore {
     deleteConfigValue: Database.Statement;
     insertAuditLog: Database.Statement;
     listSessions: Database.Statement;
+    listSessionsByGuest: Database.Statement;
+    listSessionsByIp: Database.Statement;
+    listSessionsByBoth: Database.Statement;
     countSessions: Database.Statement;
+    countSessionsByGuest: Database.Statement;
+    countSessionsByIp: Database.Statement;
+    countSessionsByBoth: Database.Statement;
     countActiveSessions: Database.Statement;
+    countActiveSessionsByGuestId: Database.Statement;
+    countActiveSessionsByIpHash: Database.Statement;
     getSessionWithRoundCount: Database.Statement;
     getSessionHistory: Database.Statement;
     deleteSession: Database.Statement;
@@ -34,21 +56,40 @@ export class AdminStore {
         `INSERT INTO admin_audit_log (action, detail, ip_hash, timestamp) VALUES (?, ?, ?, ?)`
       ),
       listSessions: db.prepare(
-        `SELECT s.session_id, s.balance_cents, s.created_at, s.last_active_at,
-                s.created_by_ip_hash, COUNT(h.id) as round_count
-         FROM sessions s
-         LEFT JOIN history h ON s.session_id = h.session_id
-         GROUP BY s.session_id
-         ORDER BY s.last_active_at DESC
-         LIMIT ? OFFSET ?`
+        `${SESSION_LIST_SELECT}${SESSION_LIST_TAIL}`
+      ),
+      listSessionsByGuest: db.prepare(
+        `${SESSION_LIST_SELECT} WHERE s.guest_id = ?${SESSION_LIST_TAIL}`
+      ),
+      listSessionsByIp: db.prepare(
+        `${SESSION_LIST_SELECT} WHERE s.created_by_ip_hash = ?${SESSION_LIST_TAIL}`
+      ),
+      listSessionsByBoth: db.prepare(
+        `${SESSION_LIST_SELECT} WHERE s.guest_id = ? AND s.created_by_ip_hash = ?${SESSION_LIST_TAIL}`
       ),
       countSessions: db.prepare(`SELECT COUNT(*) as count FROM sessions`),
+      countSessionsByGuest: db.prepare(
+        `SELECT COUNT(*) as count FROM sessions WHERE guest_id = ?`
+      ),
+      countSessionsByIp: db.prepare(
+        `SELECT COUNT(*) as count FROM sessions WHERE created_by_ip_hash = ?`
+      ),
+      countSessionsByBoth: db.prepare(
+        `SELECT COUNT(*) as count FROM sessions WHERE guest_id = ? AND created_by_ip_hash = ?`
+      ),
       countActiveSessions: db.prepare(
         `SELECT COUNT(*) as count FROM sessions WHERE last_active_at > ?`
       ),
+      countActiveSessionsByGuestId: db.prepare(
+        `SELECT COUNT(*) as count FROM sessions WHERE guest_id = ? AND last_active_at > ?`
+      ),
+      countActiveSessionsByIpHash: db.prepare(
+        `SELECT COUNT(*) as count FROM sessions WHERE created_by_ip_hash = ? AND last_active_at > ?`
+      ),
       getSessionWithRoundCount: db.prepare(
         `SELECT s.session_id, s.balance_cents, s.created_at, s.last_active_at,
-                s.created_by_ip_hash, COUNT(h.id) as round_count
+                s.created_by_ip_hash, s.geo_country, s.geo_region, s.guest_id,
+                COUNT(h.id) as round_count
          FROM sessions s
          LEFT JOIN history h ON s.session_id = h.session_id
          WHERE s.session_id = ?
@@ -116,19 +157,46 @@ export class AdminStore {
 
   // ---- Session Management ----
 
-  listSessions(page: number, pageSize: number): { sessions: AdminSessionEntry[]; total: number } {
-    const offset = (page - 1) * pageSize;
-    const rows = this.stmts.listSessions.all(pageSize, offset) as Array<Record<string, unknown>>;
-    const totalRow = this.stmts.countSessions.get() as { count: number };
+  private mapSessionRow(r: Record<string, unknown>): AdminSessionEntry {
     return {
-      sessions: rows.map(r => ({
-        sessionId: r.session_id as string,
-        balanceCents: r.balance_cents as number,
-        createdAt: r.created_at as number,
-        lastActiveAt: r.last_active_at as number,
-        createdByIpHash: (r.created_by_ip_hash as string) ?? null,
-        roundCount: r.round_count as number,
-      })),
+      sessionId: r.session_id as string,
+      balanceCents: r.balance_cents as number,
+      createdAt: r.created_at as number,
+      lastActiveAt: r.last_active_at as number,
+      createdByIpHash: (r.created_by_ip_hash as string) ?? null,
+      roundCount: r.round_count as number,
+      geoCountry: (r.geo_country as string) ?? null,
+      geoRegion: (r.geo_region as string) ?? null,
+      guestId: (r.guest_id as string) ?? null,
+    };
+  }
+
+  listSessions(page: number, pageSize: number, filters?: { guestId?: string; ipHash?: string }): { sessions: AdminSessionEntry[]; total: number } {
+    const offset = (page - 1) * pageSize;
+    const hasGuest = !!filters?.guestId;
+    const hasIp = !!filters?.ipHash;
+
+    const [listStmt, countStmt] = hasGuest && hasIp
+      ? [this.stmts.listSessionsByBoth, this.stmts.countSessionsByBoth]
+      : hasGuest
+      ? [this.stmts.listSessionsByGuest, this.stmts.countSessionsByGuest]
+      : hasIp
+      ? [this.stmts.listSessionsByIp, this.stmts.countSessionsByIp]
+      : [this.stmts.listSessions, this.stmts.countSessions];
+
+    const filterParams = hasGuest && hasIp
+      ? [filters!.guestId!, filters!.ipHash!]
+      : hasGuest
+      ? [filters!.guestId!]
+      : hasIp
+      ? [filters!.ipHash!]
+      : [];
+
+    const rows = listStmt.all(...filterParams, pageSize, offset) as Array<Record<string, unknown>>;
+    const totalRow = countStmt.get(...filterParams) as { count: number };
+
+    return {
+      sessions: rows.map(r => this.mapSessionRow(r)),
       total: totalRow.count,
     };
   }
@@ -136,16 +204,27 @@ export class AdminStore {
   getSessionDetail(sessionId: string): AdminSessionDetailResponse | null {
     const row = this.stmts.getSessionWithRoundCount.get(sessionId) as Record<string, unknown> | undefined;
     if (!row) return null;
+
+    const session = this.mapSessionRow(row);
     const historyRows = this.stmts.getSessionHistory.all(sessionId, 50) as Array<Record<string, unknown>>;
+
+    // Count active sessions sharing the same guest_id / ip_hash
+    const ttlCutoff = Date.now() - SESSION_TTL_MS;
+    let guestSessionCount = 0;
+    if (session.guestId) {
+      const r = this.stmts.countActiveSessionsByGuestId.get(session.guestId, ttlCutoff) as { count: number };
+      guestSessionCount = r.count;
+    }
+    let ipSessionCount = 0;
+    if (session.createdByIpHash) {
+      const r = this.stmts.countActiveSessionsByIpHash.get(session.createdByIpHash, ttlCutoff) as { count: number };
+      ipSessionCount = r.count;
+    }
+
     return {
-      session: {
-        sessionId: row.session_id as string,
-        balanceCents: row.balance_cents as number,
-        createdAt: row.created_at as number,
-        lastActiveAt: row.last_active_at as number,
-        createdByIpHash: (row.created_by_ip_hash as string) ?? null,
-        roundCount: row.round_count as number,
-      },
+      session,
+      guestSessionCount,
+      ipSessionCount,
       recentHistory: historyRows.map(h => ({
         roundId: h.round_id as string,
         betCents: h.bet_cents as number,

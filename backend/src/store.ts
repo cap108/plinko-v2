@@ -12,6 +12,9 @@ export interface SessionRecord {
   createdAt: number;
   lastActiveAt: number;
   createdByIpHash: string | null;
+  geoCountry: string | null;
+  geoRegion: string | null;
+  guestId: string | null;
 }
 
 export interface HistoryRecord {
@@ -49,12 +52,14 @@ export class Store {
     this.db = db;
     this.stmts = {
       getSession: db.prepare(
-        `SELECT session_id, balance_cents, created_at, last_active_at, created_by_ip_hash
+        `SELECT session_id, balance_cents, created_at, last_active_at, created_by_ip_hash,
+                geo_country, geo_region, guest_id
          FROM sessions WHERE session_id = ?`
       ),
       createSession: db.prepare(
-        `INSERT INTO sessions (session_id, balance_cents, created_at, last_active_at, created_by_ip_hash)
-         VALUES (?, ?, ?, ?, ?)`
+        `INSERT INTO sessions (session_id, balance_cents, created_at, last_active_at, created_by_ip_hash,
+                               geo_country, geo_region, guest_id)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?)`
       ),
       updateBalance: db.prepare(
         `UPDATE sessions SET balance_cents = ?, last_active_at = ? WHERE session_id = ?`
@@ -96,18 +101,33 @@ export class Store {
       createdAt: row.created_at as number,
       lastActiveAt: row.last_active_at as number,
       createdByIpHash: (row.created_by_ip_hash as string) ?? null,
+      geoCountry: (row.geo_country as string) ?? null,
+      geoRegion: (row.geo_region as string) ?? null,
+      guestId: (row.guest_id as string) ?? null,
     };
   }
 
-  createSession(sessionId: string, initialBalanceCents: number, ipHash: string | null): SessionRecord {
+  createSession(
+    sessionId: string,
+    initialBalanceCents: number,
+    ipHash: string | null,
+    geo?: { country: string; region: string } | null,
+    guestId?: string | null,
+  ): SessionRecord {
     const now = Date.now();
-    this.stmts.createSession.run(sessionId, initialBalanceCents, now, now, ipHash);
+    this.stmts.createSession.run(
+      sessionId, initialBalanceCents, now, now, ipHash,
+      geo?.country ?? null, geo?.region ?? null, guestId ?? null,
+    );
     return {
       sessionId,
       balanceCents: initialBalanceCents,
       createdAt: now,
       lastActiveAt: now,
       createdByIpHash: ipHash,
+      geoCountry: geo?.country ?? null,
+      geoRegion: geo?.region ?? null,
+      guestId: guestId ?? null,
     };
   }
 

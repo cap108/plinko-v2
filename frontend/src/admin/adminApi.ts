@@ -77,8 +77,15 @@ export async function updateConfig(data: AdminConfigUpdateRequest): Promise<{ ok
   });
 }
 
-export async function getSessions(page = 1, pageSize = 20): Promise<AdminSessionListResponse> {
-  return adminFetch<AdminSessionListResponse>(`/api/admin/sessions?page=${page}&pageSize=${pageSize}`);
+export async function getSessions(
+  page = 1,
+  pageSize = 20,
+  filters?: { guestId?: string; ipHash?: string },
+): Promise<AdminSessionListResponse> {
+  const params = new URLSearchParams({ page: String(page), pageSize: String(pageSize) });
+  if (filters?.guestId) params.set('guestId', filters.guestId);
+  if (filters?.ipHash) params.set('ipHash', filters.ipHash);
+  return adminFetch<AdminSessionListResponse>(`/api/admin/sessions?${params.toString()}`);
 }
 
 export async function getSessionDetail(id: string): Promise<AdminSessionDetailResponse> {

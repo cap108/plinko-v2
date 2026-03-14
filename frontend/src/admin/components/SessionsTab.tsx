@@ -21,6 +21,11 @@ function isActive(ts: number): boolean {
   return Date.now() - ts < 5 * 60 * 1000; // 5 minutes
 }
 
+function formatLocation(country?: string | null, region?: string | null): string {
+  if (!country) return '—';
+  return region ? `${country} / ${region}` : country;
+}
+
 export function SessionsTab() {
   const [sessions, setSessions] = useState<AdminSessionEntry[]>([]);
   const [total, setTotal] = useState(0);
@@ -28,6 +33,9 @@ export function SessionsTab() {
   const [loading, setLoading] = useState(true);
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [showPurge, setShowPurge] = useState(false);
+  const [filterGuestId, setFilterGuestId] = useState<string | undefined>();
+  const [filterIpHash, setFilterIpHash] = useState<string | undefined>();
+  const [prevPage, setPrevPage] = useState<number | null>(null);
   const pageSize = 20;
 
   const { toasts, addToast, removeToast } = useToast();
@@ -35,7 +43,10 @@ export function SessionsTab() {
   const fetchSessions = useCallback(async () => {
     setLoading(true);
     try {
-      const data = await adminApi.getSessions(page, pageSize);
+      const filters = (filterGuestId || filterIpHash)
+        ? { guestId: filterGuestId, ipHash: filterIpHash }
+        : undefined;
+      const data = await adminApi.getSessions(page, pageSize, filters);
       setSessions(data.sessions);
       setTotal(data.total);
     } catch (e) {
@@ -43,17 +54,38 @@ export function SessionsTab() {
     } finally {
       setLoading(false);
     }
-  }, [page, addToast]);
+  }, [page, filterGuestId, filterIpHash, addToast]);
 
   useEffect(() => { fetchSessions(); }, [fetchSessions]);
 
   const totalPages = Math.max(1, Math.ceil(total / pageSize));
 
+  const hasFilter = !!(filterGuestId || filterIpHash);
+
+  const dismissFilter = () => {
+    setFilterGuestId(undefined);
+    setFilterIpHash(undefined);
+    setPage(prevPage ?? 1);
+    setPrevPage(null);
+  };
+
+  const handleBackFromDetail = (filter?: { guestId?: string; ipHash?: string }) => {
+    setSelectedId(null);
+    if (filter) {
+      setPrevPage(page);
+      setPage(1);
+      setFilterGuestId(filter.guestId);
+      setFilterIpHash(filter.ipHash);
+    } else {
+      fetchSessions();
+    }
+  };
+
   if (selectedId) {
     return (
       <SessionDetail
         sessionId={selectedId}
-        onBack={() => { setSelectedId(null); fetchSessions(); }}
+        onBack={handleBackFromDetail}
       />
     );
   }
@@ -92,17 +124,49 @@ export function SessionsTab() {
         </button>
       </div>
 
+      {/* Filter chips */}
+      {hasFilter && (
+        <div className="flex flex-wrap items-center gap-2 mb-3">
+          {filterGuestId && (
+            <span className="inline-flex items-center gap-1.5 px-3 py-1.5 bg-amber-500/10 border border-amber-500/30 text-amber-400 text-xs rounded-full">
+              Browser ID: {filterGuestId.slice(0, 8)}...
+              <button
+                onClick={dismissFilter}
+                className="min-w-[44px] min-h-[44px] flex items-center justify-center -m-2 text-amber-400 hover:text-amber-300"
+                aria-label="Remove filter"
+              >
+                &times;
+              </button>
+            </span>
+          )}
+          {filterIpHash && (
+            <span className="inline-flex items-center gap-1.5 px-3 py-1.5 bg-amber-500/10 border border-amber-500/30 text-amber-400 text-xs rounded-full">
+              IP: {filterIpHash}
+              <button
+                onClick={dismissFilter}
+                className="min-w-[44px] min-h-[44px] flex items-center justify-center -m-2 text-amber-400 hover:text-amber-300"
+                aria-label="Remove filter"
+              >
+                &times;
+              </button>
+            </span>
+          )}
+        </div>
+      )}
+
       {loading ? (
         <SessionsSkeleton />
       ) : (
         <>
-          <div className="bg-surface-alt border border-border-subtle rounded-lg overflow-hidden">
+          <div className="bg-surface-alt border border-border-subtle rounded-lg overflow-hidden overflow-x-auto">
             <table className="w-full text-xs">
               <thead>
                 <tr className="border-b border-border-subtle">
                   <th className="text-left text-text-secondary font-medium px-4 py-2.5">Session ID</th>
+                  <th className="text-left text-text-secondary font-medium px-4 py-2.5 hidden sm:table-cell">Browser</th>
                   <th className="text-right text-text-secondary font-medium px-4 py-2.5">Balance</th>
                   <th className="text-right text-text-secondary font-medium px-4 py-2.5">Rounds</th>
+                  <th className="text-left text-text-secondary font-medium px-4 py-2.5 hidden sm:table-cell">Location</th>
                   <th className="text-left text-text-secondary font-medium px-4 py-2.5">Last Active</th>
                   <th className="text-left text-text-secondary font-medium px-4 py-2.5">Created</th>
                 </tr>
@@ -129,10 +193,16 @@ export function SessionsTab() {
                           </span>
                         </div>
                       </td>
+                      <td className="px-4 py-2.5 font-mono text-text-secondary hidden sm:table-cell">
+                        {s.guestId ? s.guestId.slice(0, 6) : '—'}
+                      </td>
                       <td className={`px-4 py-2.5 text-right font-mono ${balanceDiff >= 0 ? 'text-green-400' : 'text-red-400'}`}>
                         ${(s.balanceCents / 100).toFixed(2)}
                       </td>
                       <td className="px-4 py-2.5 text-right text-text-primary font-mono">{s.roundCount}</td>
+                      <td className="px-4 py-2.5 text-text-secondary hidden sm:table-cell">
+                        {formatLocation(s.geoCountry, s.geoRegion)}
+                      </td>
                       <td className="px-4 py-2.5 text-text-secondary" title={absoluteTime(s.lastActiveAt)}>
                         {relativeTime(s.lastActiveAt)}
                       </td>
@@ -144,7 +214,12 @@ export function SessionsTab() {
                 })}
                 {sessions.length === 0 && (
                   <tr>
-                    <td colSpan={5} className="px-4 py-8 text-center text-text-secondary">No sessions found</td>
+                    {/* colSpan=7: update if column count changes */}
+                    <td colSpan={7} className="px-4 py-8 text-center text-text-secondary">
+                      {hasFilter
+                        ? 'No other sessions found for this Browser ID / IP'
+                        : 'No sessions found'}
+                    </td>
                   </tr>
                 )}
               </tbody>

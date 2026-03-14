@@ -109,6 +109,9 @@ export interface AdminSessionEntry {
   lastActiveAt: number;
   createdByIpHash: string | null;
   roundCount: number;
+  geoCountry?: string | null;
+  geoRegion?: string | null;
+  guestId?: string | null;
 }
 
 export interface AdminSessionListResponse {
@@ -120,6 +123,8 @@ export interface AdminSessionListResponse {
 
 export interface AdminSessionDetailResponse {
   session: AdminSessionEntry;
+  guestSessionCount: number;
+  ipSessionCount: number;
   recentHistory: Array<{
     roundId: string;
     betCents: number;

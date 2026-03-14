@@ -73,6 +73,19 @@ export function initDb(): Database.Database {
       ON admin_audit_log(timestamp DESC);
   `);
 
+  // Migrate: add geo and guest_id columns if missing
+  const existingCols = new Set(
+    (db.pragma('table_info(sessions)') as Array<{ name: string }>).map(c => c.name)
+  );
+  if (!existingCols.has('geo_country')) db.exec('ALTER TABLE sessions ADD COLUMN geo_country TEXT');
+  if (!existingCols.has('geo_region')) db.exec('ALTER TABLE sessions ADD COLUMN geo_region TEXT');
+  if (!existingCols.has('guest_id')) db.exec('ALTER TABLE sessions ADD COLUMN guest_id TEXT');
+
+  db.exec(`
+    CREATE INDEX IF NOT EXISTS idx_sessions_guest_id ON sessions(guest_id);
+    CREATE INDEX IF NOT EXISTS idx_sessions_ip_hash ON sessions(created_by_ip_hash);
+  `);
+
   logger.info({ dbPath }, 'Database initialized');
   return db;
 }

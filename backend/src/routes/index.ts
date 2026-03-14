@@ -2,6 +2,7 @@ import { Router, type Request, type Response } from 'express';
 import { v4 as uuidv4 } from 'uuid';
 import { z } from 'zod';
 import rateLimit from 'express-rate-limit';
+import { createRequire } from 'module';
 import type { RowCount, RiskLevel } from '@plinko-v2/shared';
 import type { Store } from '../store.js';
 import { resolveOutcome } from '../plinko/engine.js';
@@ -13,6 +14,10 @@ import {
 import { logger } from '../logger.js';
 import { BetError, hashIp, getSessionLock } from '../utils.js';
 export { cleanupSessionLocks } from '../utils.js';
+
+// geoip-lite is CJS-only; use createRequire for ESM interop
+const esmRequire = createRequire(import.meta.url);
+const geoip = esmRequire('geoip-lite') as { lookup: (ip: string) => { country?: string; region?: string } | null };
 
 if (!process.env.IP_HASH_SALT && process.env.NODE_ENV === 'production') {
   logger.warn('IP_HASH_SALT not set — using default dev salt. Set this env var in production.');
@@ -39,6 +44,10 @@ const BetBodySchema = z.object({
 });
 
 const SessionIdQuerySchema = z.object({ sessionId: SessionIdSchema });
+
+const SessionCreateSchema = z.object({
+  guestId: z.string().uuid().optional(),
+}).optional();
 
 const HistoryQuerySchema = z.object({
   sessionId: SessionIdSchema,
@@ -83,16 +92,30 @@ export function createRouter(store: Store): Router {
       return;
     }
 
-    const ipHash = hashIp(clientIp(req));
+    const rawIp = clientIp(req);
+    const ipHash = hashIp(rawIp);
 
     if (store.countSessionsByIp(ipHash, Date.now() - 3_600_000) >= 10) {
       res.status(429).json({ error: 'Too many sessions created. Please try again later.' });
       return;
     }
 
+    // Parse optional body for guestId
+    const bodyParse = SessionCreateSchema.safeParse(req.body);
+    const guestId = bodyParse.success ? bodyParse.data?.guestId ?? null : null;
+
+    // Geo lookup from raw IP
+    let geo: { country: string; region: string } | null = null;
+    if (rawIp !== 'unknown') {
+      const lookup = geoip.lookup(rawIp);
+      if (lookup) {
+        geo = { country: lookup.country ?? '', region: lookup.region ?? '' };
+      }
+    }
+
     const sessionId = uuidv4();
-    const record = store.createSession(sessionId, INITIAL_BALANCE_CENTS, ipHash);
-    logger.info({ sessionId, ip: clientIp(req) }, 'Session created');
+    const record = store.createSession(sessionId, INITIAL_BALANCE_CENTS, ipHash, geo, guestId);
+    logger.info({ sessionId, ip: rawIp, guestId, geoCountry: geo?.country }, 'Session created');
     res.json({ sessionId: record.sessionId, balance: record.balanceCents / 100 });
   });
 
