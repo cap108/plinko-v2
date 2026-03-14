@@ -16,12 +16,43 @@ export function getAudioContext(): AudioContext | null {
   return ctx;
 }
 
-/** Resume the context if suspended. Call from any user-gesture handler. */
+/** Resume the context if suspended, or create it fresh during a user gesture.
+ *  On iOS Safari the AudioContext MUST be created during a user gesture
+ *  (touchend / click / keydown) — otherwise it may be permanently suspended. */
 export function ensureAudioResumed(): void {
-  const c = getAudioContext();
-  if (c && c.state === 'suspended') {
-    c.resume();
+  // If no context exists yet, create it now (inside a user gesture)
+  if (!ctx) {
+    getAudioContext();
   }
+  if (!ctx) return; // creation failed — no Web Audio support
+
+  if (ctx.state === 'suspended') {
+    ctx.resume().catch(() => {});
+  }
+
+  // iOS edge case: if the context was created outside a gesture and .resume()
+  // didn't work, close the stale context so the next gesture creates a fresh one.
+  if (ctx.state === 'suspended') {
+    const staleCtx = ctx;
+    setTimeout(() => {
+      if (staleCtx.state === 'suspended') {
+        try { staleCtx.close(); } catch { /* ignore */ }
+        ctx = null;
+        masterGain = null;
+      }
+    }, 200);
+  }
+}
+
+// Auto-unlock Web Audio on first user gesture (covers iOS touchend requirement)
+function unlockOnGesture(): void {
+  ensureAudioResumed();
+  document.removeEventListener('touchend', unlockOnGesture);
+  document.removeEventListener('click', unlockOnGesture);
+}
+if (typeof document !== 'undefined') {
+  document.addEventListener('touchend', unlockOnGesture, { once: true });
+  document.addEventListener('click', unlockOnGesture, { once: true });
 }
 
 /** Master gain node (0.3 gain to prevent clipping). Returns null if no context. */

@@ -175,17 +175,19 @@ export default function App() {
   useEffect(() => {
     if (showSplash) return;
     const handler = () => {
-      // Remove both listeners immediately so this only fires once
       document.removeEventListener('click', handler);
       document.removeEventListener('keydown', handler);
+      document.removeEventListener('touchend', handler);
       ensureAudioResumed();
       if (!plinko.musicMuted) startBackgroundMusic();
     };
     document.addEventListener('click', handler);
     document.addEventListener('keydown', handler);
+    document.addEventListener('touchend', handler);
     return () => {
       document.removeEventListener('click', handler);
       document.removeEventListener('keydown', handler);
+      document.removeEventListener('touchend', handler);
     };
   }, [showSplash]);
 
