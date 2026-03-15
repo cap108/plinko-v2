@@ -189,6 +189,7 @@ export function usePlinko(options: UsePlinkoOptions): UsePlinkoReturn {
   const inflightCostRef = useRef(0);
   const lastBetTimeRef = useRef(0);
   const sessionGenRef = useRef(0);
+  const betPendingRef = useRef(false);
 
   // Server-authoritative balance (used for availability check + reconciliation)
   const serverBalanceRef = useRef(0);
@@ -252,7 +253,7 @@ export function usePlinko(options: UsePlinkoOptions): UsePlinkoReturn {
     if (now - lastBetTimeRef.current < 300) return;
     lastBetTimeRef.current = now;
 
-    if (!sessionId || !config || betPending) return;
+    if (!sessionId || !config || betPendingRef.current) return;
 
     if (config.maintenanceMode) {
       setError('Game is temporarily paused for maintenance');
@@ -283,6 +284,7 @@ export function usePlinko(options: UsePlinkoOptions): UsePlinkoReturn {
     roundNetRef.current = -totalCost;
 
     setError(null);
+    betPendingRef.current = true;
     setBetPending(true);
 
     // Optimistic balance deduction + stat tracking
@@ -304,6 +306,7 @@ export function usePlinko(options: UsePlinkoOptions): UsePlinkoReturn {
       inflightCostRef.current = Math.max(0, inflightCostRef.current - totalCost);
       serverBalanceRef.current = bets[bets.length - 1].balance;
 
+      betPendingRef.current = false;
       setBetPending(false);
       activeBallsRef.current += bets.length;
       setPlaying(true);
@@ -328,9 +331,10 @@ export function usePlinko(options: UsePlinkoOptions): UsePlinkoReturn {
       setTotalWagered(prev => prev - totalCost);
       setError(e instanceof Error ? e.message : 'Bet failed');
       setErrorType(e instanceof ApiError ? e.type : ApiErrorType.Network);
+      betPendingRef.current = false;
       setBetPending(false);
     }
-  }, [sessionId, config, betPending, betAmount, numBalls, rows, riskLevel, speed]);
+  }, [sessionId, config, betAmount, numBalls, rows, riskLevel, speed]);
 
   // ---- Ball landing handler ----
   const handleBallLanded = useCallback((dropId: number, _slotIndex: number) => {
@@ -386,6 +390,7 @@ export function usePlinko(options: UsePlinkoOptions): UsePlinkoReturn {
     const oldSessionId = sessionId;
     try {
       sessionGenRef.current++;
+      betPendingRef.current = false;
       setBetPending(false);
       setLoading(true);
       setError(null);

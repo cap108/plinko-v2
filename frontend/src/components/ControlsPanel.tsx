@@ -306,12 +306,12 @@ export const ControlsPanel = memo(function ControlsPanel({
       ) : (
         <button
           onClick={placeBet}
-          disabled={!config}
+          disabled={!config || balance < betAmount * numBalls}
           className={`w-full px-4 py-2.5 lg:py-3 font-bold rounded text-sm lg:text-base transition-all min-h-[44px] lg:min-h-[48px]
             active:scale-95
             focus-visible:ring-2 focus-visible:ring-accent-cyan focus-visible:ring-offset-2 focus-visible:ring-offset-surface
             bg-accent-cyan text-surface hover:brightness-110
-            ${!config ? 'opacity-50 cursor-not-allowed' : ''}`}
+            ${!config || balance < betAmount * numBalls ? 'opacity-50 cursor-not-allowed' : ''}`}
         >
           {`BET ${formatBalance(betAmount)} \u00D7 ${numBalls}`}
         </button>
