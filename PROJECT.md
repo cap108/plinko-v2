@@ -85,6 +85,19 @@ npm run build        # Production build
 6. **Polish & Accessibility** — Object pools, error handling, a11y, reduced motion support
 7. **Deployment** — Vercel (frontend), Railway (backend), persistent volume, CI/CD
 
+## Adversarial Plan Review Process
+
+After writing any plan/spec, run an adversarial review process:
+
+**Launch 4 adversarial review agents in parallel:**
+
+1. **Architecture reviewer** — component boundaries, data flow, state management, API design
+2. **Implementation reviewer** — math errors, race conditions, off-by-one, type safety, SQL correctness
+3. **Security/performance reviewer** — injection, session security, balance manipulation, atomicity, DoS vectors
+4. **UX/design reviewer** — error states, loading states, feedback, mobile UX, accessibility
+
+Apply all fixes from each round, then re-run the 4 reviewers. Keep iterating until no **MODERATE** or higher issues are found. Present the final spec when converged.
+
 ## Key Differentiators
 
 - **Position-based peg sounds**: Pitch scales with row (800Hz top → 2000Hz bottom), creating a natural ascending scale as balls descend

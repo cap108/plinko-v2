@@ -8,6 +8,7 @@ interface StatsPanelProps {
   totalWon: number;
   sessionStartTime: number;
   resetBalance: () => void;
+  playing: boolean;
 }
 
 function formatBalance(dollars: number): string {
@@ -40,7 +41,7 @@ function formatBalanceFull(dollars: number): string {
 }
 
 export const StatsPanel = memo(function StatsPanel({
-  balance, lastResults, totalWagered, totalWon, sessionStartTime, resetBalance,
+  balance, lastResults, totalWagered, totalWon, sessionStartTime, resetBalance, playing,
 }: StatsPanelProps) {
   const [elapsed, setElapsed] = useState(0);
 
@@ -83,7 +84,13 @@ export const StatsPanel = memo(function StatsPanel({
         {balance < 100 && (
           <button
             onClick={resetBalance}
-            className="text-accent-gold text-xs font-medium hover:underline transition-colors"
+            disabled={playing}
+            aria-disabled={playing}
+            className={`text-xs font-medium min-h-[44px] min-w-[44px] inline-flex items-center transition-colors ${
+              playing
+                ? 'text-accent-gold/50 cursor-default pointer-events-none'
+                : 'text-accent-gold hover:underline'
+            }`}
           >
             Reset
           </button>

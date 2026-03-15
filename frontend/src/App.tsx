@@ -370,6 +370,7 @@ export default function App() {
                 totalWon={plinko.totalWon}
                 sessionStartTime={plinko.sessionStartTime}
                 resetBalance={handleResetBalance}
+                playing={plinko.playing}
               />
             )}
             autoBetActive={autoBet.active}

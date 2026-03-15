@@ -190,6 +190,9 @@ export function usePlinko(options: UsePlinkoOptions): UsePlinkoReturn {
   const lastBetTimeRef = useRef(0);
   const sessionGenRef = useRef(0);
 
+  // Server-authoritative balance (used for availability check + reconciliation)
+  const serverBalanceRef = useRef(0);
+
   // Phase 5: Per-round net tracking for auto-bet "stop on win"
   const roundNetRef = useRef(0);
 
@@ -207,6 +210,7 @@ export function usePlinko(options: UsePlinkoOptions): UsePlinkoReturn {
         if (cancelled) return;
         setSessionId(session.sessionId);
         setBalance(session.balance);
+        serverBalanceRef.current = session.balance;
 
         const cfg = await api.getConfig(session.sessionId);
         if (cancelled) return;
@@ -260,8 +264,8 @@ export function usePlinko(options: UsePlinkoOptions): UsePlinkoReturn {
     const count = Math.max(1, Math.min(MAX_BET_COUNT, Math.floor(numBalls)));
     const totalCost = betAmount * count;
 
-    // Synchronous balance guard with inflight cost tracking
-    const availableBalance = balance - inflightCostRef.current;
+    // Synchronous balance guard using server-authoritative balance
+    const availableBalance = serverBalanceRef.current - inflightCostRef.current;
     if (availableBalance < totalCost) {
       setError('Insufficient balance');
       return;
@@ -298,6 +302,7 @@ export function usePlinko(options: UsePlinkoOptions): UsePlinkoReturn {
       if (currentGen !== sessionGenRef.current) return;
 
       inflightCostRef.current = Math.max(0, inflightCostRef.current - totalCost);
+      serverBalanceRef.current = bets[bets.length - 1].balance;
 
       setBetPending(false);
       activeBallsRef.current += bets.length;
@@ -325,7 +330,7 @@ export function usePlinko(options: UsePlinkoOptions): UsePlinkoReturn {
       setErrorType(e instanceof ApiError ? e.type : ApiErrorType.Network);
       setBetPending(false);
     }
-  }, [sessionId, config, betPending, betAmount, numBalls, balance, rows, riskLevel, speed]);
+  }, [sessionId, config, betPending, betAmount, numBalls, rows, riskLevel, speed]);
 
   // ---- Ball landing handler ----
   const handleBallLanded = useCallback((dropId: number, _slotIndex: number) => {
@@ -353,6 +358,8 @@ export function usePlinko(options: UsePlinkoOptions): UsePlinkoReturn {
     if (activeBallsRef.current <= 0) {
       activeBallsRef.current = 0;
       setPlaying(false);
+      // Snap display to server-authoritative balance, correcting any drift
+      setBalance(serverBalanceRef.current);
     }
   }, []);
 
@@ -362,7 +369,10 @@ export function usePlinko(options: UsePlinkoOptions): UsePlinkoReturn {
       if (activeBallsRef.current > 0 && lastActivityTimeRef.current > 0) {
         if (Date.now() - lastActivityTimeRef.current > 30_000) {
           activeBallsRef.current = 0;
+          dropIdToResultRef.current.clear();
+          inflightCostRef.current = 0;
           setPlaying(false);
+          setBalance(serverBalanceRef.current);
           lastActivityTimeRef.current = Date.now();
         }
       }
@@ -372,15 +382,18 @@ export function usePlinko(options: UsePlinkoOptions): UsePlinkoReturn {
 
   // ---- Reset balance ----
   const resetBalance = useCallback(async () => {
+    if (activeBallsRef.current > 0) return;
     const oldSessionId = sessionId;
     try {
       sessionGenRef.current++;
+      setBetPending(false);
       setLoading(true);
       setError(null);
       const session = await api.createSession();
       api.storeSessionId(session.sessionId);
       setSessionId(session.sessionId);
       setBalance(session.balance);
+      serverBalanceRef.current = session.balance;
       setLastResults([]);
       setTotalWagered(0);
       setTotalWon(0);
